@@ -1,0 +1,16 @@
+fastapi
+uvicorn[standard]
+sqlalchemy[aio]
+asyncpg
+pydantic
+python-json-logger
+celery
+redis
+python-dotenv
+pydantic-settings
+pandas
+alembic
+gunicorn
+python-jose
+pytest
+pytest-asyncio

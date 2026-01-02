@@ -1,0 +1,18 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: recon-workers
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: recon-workers
+  template:
+    metadata:
+      labels:
+        app: recon-workers
+    spec:
+      containers:
+      - name: worker
+        image: recon-workers:latest
+        command: ["celery", "-A", "app.workers.celery_app.cel", "worker", "--loglevel=info", "-Q", "recon"]

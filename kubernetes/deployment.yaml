@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: recon-backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: recon-backend
+  template:
+    metadata:
+      labels:
+        app: recon-backend
+    spec:
+      containers:
+      - name: web
+        image: recon-backend:latest
+        ports:
+        - containerPort: 8000
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8000
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 8000

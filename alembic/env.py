@@ -3,6 +3,10 @@ from sqlalchemy import pool
 from sqlalchemy import engine_from_config
 from alembic import context
 import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 config = context.config
 

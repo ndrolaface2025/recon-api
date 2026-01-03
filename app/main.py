@@ -5,6 +5,7 @@ from app.logging_config import configure_logging
 from app.api.v1.routers import all_routers
 from app.db.session import AsyncSessionLocal
 from app.db.init_db import init_db, seed_initial_data
+from app.api.v1.routers.reconciliation import router as reconciliation_router
 
 
 @asynccontextmanager
@@ -28,3 +29,4 @@ def create_app():
     return app
 
 app = create_app()
+app.include_router(reconciliation_router)

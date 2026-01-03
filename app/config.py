@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     JWT_SECRET: str = "change-me"
     S3_ENDPOINT: Optional[AnyUrl] = None
     S3_BUCKET: Optional[str] = None
+    OPENAI_API_KEY: Optional[str] = None  # Add OpenAI API key for LLM detection
 
     @field_validator('S3_ENDPOINT', mode='before')
     def _s3_endpoint_empty_to_none(cls, v):

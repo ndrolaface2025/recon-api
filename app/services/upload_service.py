@@ -9,7 +9,7 @@ import pandas as pd
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.repositories.upload import UploadRepository
-from app.workers.tasks import process_batch
+# from app.workers.tasks import process_batch
 # from app.tasks.test_tasks import process_batch
 
 ALLOWED_EXTENSIONS = {".csv", ".xls", ".xlsx"}
@@ -129,20 +129,20 @@ class UploadService:
             jobs = [fileData[i:i + batch_size] for i in range(0, total_records, batch_size)]
 
             task_ids = []
-            for idx, batch in enumerate(jobs, start=1):
-                try:
-                    task = process_batch.delay(idx,'testing', batch)
-                    print(f"✓ Task for batch {idx} queued with id: {task.id}")
-                    task_ids.append({
-                        'task_id': task.id,
-                        'batch_number': idx,
-                        'batch_size': len(batch),
-                        'status': 'QUEUED'
-                    })
-                except Exception as e:
-                    print(f"✗ Failed to queue batch {idx}: {e}")
+            # for idx, batch in enumerate(jobs, start=1):
+            #     try:
+            #         task = process_batch.delay(idx,'testing', batch)
+            #         print(f"✓ Task for batch {idx} queued with id: {task.id}")
+            #         task_ids.append({
+            #             'task_id': task.id,
+            #             'batch_number': idx,
+            #             'batch_size': len(batch),
+            #             'status': 'QUEUED'
+            #         })
+            #     except Exception as e:
+            #         print(f"✗ Failed to queue batch {idx}: {e}")
             
-                print(f"\nTotal tasks queued: {len([t for t in task_ids if t['task_id']])}")
+            #     print(f"\nTotal tasks queued: {len([t for t in task_ids if t['task_id']])}")
 
             # print("All tasks queued:", task_ids)
 

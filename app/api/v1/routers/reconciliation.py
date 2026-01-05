@@ -65,17 +65,23 @@ async def detect_source(file: UploadFile = File(...)):
                 "confidence": mapping_info.get("confidence", 0),
                 "type": col_type
             })
-
         return {
-            "filename": file.filename,
-            "rows": len(df),
-            "size": file_size,
-            "file_detect_column": file_columns,
-            "source_detection": source_result,
-            "column_mapping": column_mapping_array
-        }
+                "status": "success",
+                "error": False,
+                "message": "Source successfully detected",
+                "data": {
+                    "filename": file.filename,
+                    "rows": len(df),
+                    "size": file_size,
+                    "file_detect_column": file_columns,
+                    "source_detection": source_result,
+                    "column_mapping": column_mapping_array
+                }
+            }
     except Exception as e:
-        raise HTTPException(
-            status_code=400,
-            detail=str(e)
-        )
+        return {
+                "status": "error",
+                "error": True,
+                "message": str(e),
+                "data": []
+            }

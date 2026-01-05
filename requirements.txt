@@ -14,3 +14,8 @@ gunicorn
 python-jose
 pytest
 pytest-asyncio
+scikit-learn
+python-multipart
+openai
+pdfplumber
+

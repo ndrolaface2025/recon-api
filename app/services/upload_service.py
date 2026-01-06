@@ -9,6 +9,7 @@ import pandas as pd
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.repositories.upload import UploadRepository
+from app.db.repositories.userRepository import UserRepository
 from app.services.batch_config_service import BatchConfigService
 from app.workers.tasks import start_recon_job
 # from app.workers.tasks import process_batch
@@ -45,6 +46,9 @@ class UploadService:
             else:
                 df = pd.read_excel(io.BytesIO(contents))
 
+            # get user details
+            userDetail = await UserRepository.getUserDetails(self.db)
+            print("User Details:", userDetail)
             # Replace NaN with None (JSON safe)
             df = df.where(pd.notnull(df), '')
 
@@ -55,7 +59,7 @@ class UploadService:
             fileData = df.to_dict(orient="records")
             fileDetails = {"file_name": file.filename, "file_details": {"file_type": 1, "file_size": "{:.2f} KB".format(len(contents)/1024)},
                         "channel_id": channel_id, "status": 0,"record_details": {"total_records": total_records, "success": 0, "failed": 0},
-                        "version_number":1,"created_by":1
+                        "version_number":1,"created_by":userDetail
                         }
             # recon_ref = f"RECON{''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(12))}"
             fileSaveDetail = await UploadRepository.saveUploadedFileDetails(self.db, fileDetails)
@@ -72,8 +76,8 @@ class UploadService:
                 "channel_id" : channel_id,
                 "source_id": source_id,
                 "file_transactions_id": fileSaveDetail.get("insertedId"),
-                "created_by": 1,
-                "updated_by": 1,
+                "created_by": userDetail,
+                "updated_by": userDetail,
                 "version_number": 1
             }
             required_mappings = [

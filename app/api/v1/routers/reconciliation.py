@@ -51,23 +51,37 @@ async def detect_source(file: UploadFile = File(...), db: AsyncSession = Depends
         # Get the recommended source type from detection (ATM_FILE, SWITCH_FILE, etc.)
         recommended_source_type = source_result.get("recommended_source", "")
         
+        # Get the detected channel from LLM (if available)
+        # Check both top level and raw object
+        llm_prediction = source_result.get("llm_prediction", {})
+        llm_detected_channel = llm_prediction.get("channel", "UNKNOWN")
+        
+        # If not at top level, check in raw object
+        if llm_detected_channel == "UNKNOWN":
+            llm_detected_channel = llm_prediction.get("raw", {}).get("channel", "UNKNOWN")
+        
         # Map source type to channel ID
         # ATM_FILE -> Channel 1 (ATM)
-        # SWITCH_FILE -> Could be part of multiple channels
+        # SWITCH_FILE -> Use LLM detected channel
         # CBS_BANK_FILE -> Bank/CBS
-        # Extract channel from source type
         channel_mapping = {
             "ATM_FILE": 1,
             "ATM": 1,
             "POS": 2,
             "CARD": 3,
+            "CARDS": 3,
             "CARD_NETWORK_FILE": 3,
-            "SWITCH_FILE": None,  # Switch can be part of any channel
+            "SWITCH_FILE": None,  # Will be determined by LLM channel
             "CBS_BANK_FILE": None,  # CBS can be part of any channel
             "BANK": None
         }
         
+        # Determine channel ID
         detected_channel_id = channel_mapping.get(recommended_source_type)
+        
+        # If source type doesn't map directly (like SWITCH_FILE), use LLM detected channel
+        if detected_channel_id is None and llm_detected_channel != "UNKNOWN":
+            detected_channel_id = channel_mapping.get(llm_detected_channel)
         
         # Fetch detected channel details
         channel_details = None
@@ -123,8 +137,18 @@ async def detect_source(file: UploadFile = File(...), db: AsyncSession = Depends
         # Get column mapping based on actual CSV columns
         column_mapping_dict = auto_map_columns(file_columns)
         
+        # Define critical fields that must always be present
+        REQUIRED_FIELDS = {
+            "date": {"display_name": "DateTime", "type": "DateTime"},
+            "account_number": {"display_name": "Account Number", "type": "String"},
+            "amount": {"display_name": "Amount", "type": "String"},
+            "currency": {"display_name": "Currency", "type": "String"}
+        }
+        
         # Transform column mapping to array format
         column_mapping_array = []
+        mapped_canonical_fields = set()
+        
         for col_name in file_columns:  # Use actual CSV columns in order
             mapping_info = column_mapping_dict.get(col_name, {})
             
@@ -140,13 +164,34 @@ async def detect_source(file: UploadFile = File(...), db: AsyncSession = Depends
                 pass
             
             canonical_field = mapping_info.get("mapped_to")
+            
+            # Track which canonical fields have been mapped
+            if canonical_field:
+                mapped_canonical_fields.add(canonical_field)
+            
+            # Check if this canonical field is a required field
+            is_required = canonical_field in REQUIRED_FIELDS if canonical_field else False
+            
             column_mapping_array.append({
                 "column_name": col_name,
-                "channel_column": canonical_field.lower().replace("_", "_") if canonical_field else None,
-                "mapped_to": col_name,  # mapped_to should be the original CSV column name
+                "channel_column": canonical_field if canonical_field else None,  # Canonical field name
+                "mapped_to": col_name,  # Original CSV column name
                 "confidence": mapping_info.get("confidence", 0),
-                "type": col_type
+                "type": col_type,
+                "required": is_required
             })
+        
+        # Add missing required fields with mapped_to as null
+        for canonical_field, field_info in REQUIRED_FIELDS.items():
+            if canonical_field not in mapped_canonical_fields:
+                column_mapping_array.append({
+                    "column_name": field_info["display_name"],
+                    "channel_column": canonical_field,
+                    "mapped_to": None,  # Not found in file
+                    "confidence": 0,
+                    "type": field_info["type"],
+                    "required": True
+                })
         
         return {
             "status": "success",

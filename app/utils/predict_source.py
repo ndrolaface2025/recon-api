@@ -77,6 +77,7 @@ def predict_source_with_fallback(df):
         },
         "llm_prediction": {
             "source": llm_result.get("source", "UNKNOWN"),
+            "channel": llm_result.get("channel", "UNKNOWN"),  # Extract channel to top level
             "reason": llm_result.get("reason", "No reason provided"),
             "raw": llm_result
         },

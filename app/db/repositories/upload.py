@@ -31,20 +31,38 @@ class UploadRepository:
             return { "error": True, "status": "error", "message": str(e)}
         
     @staticmethod
-    async def saveFileDetails(db: AsyncSession,fileData: List[Dict[str, Any]],fileJson: Dict[str, Any]) -> Dict[str, Any]:
+    async def saveFileDetails(
+        db: AsyncSession,
+        fileData: List[Dict[str, Any]],
+        fileJson: Dict[str, Any],
+        getDateTimeColumnName: str,
+        getAmountColumnName: str,
+        getAcountNumberColumnName: str,
+        getCurrencyColumnName: str
+        ) -> Dict[str, Any]:
         try:
             duplicates = []
             new_records = []
             for row in fileData:
-                stmt = select(Transaction).where(
+                conditions = [
                     Transaction.channel_id == fileJson["channel_id"],
                     Transaction.source_id == fileJson["source_id"],
-                    Transaction.amount == str(row["amount"]),
-                    Transaction.date == row["datetime"],
-                    Transaction.account_number == row["account_masked"],
-                    Transaction.ccy == row["currency"],
-                )
+                ]
+                if getAmountColumnName is not None and getAmountColumnName in row:
+                    conditions.append(
+                        Transaction.amount == str(row[getAmountColumnName])
+                    )
 
+                if getDateTimeColumnName is not None and getDateTimeColumnName in row:
+                    conditions.append(
+                        Transaction.date == str(row[getDateTimeColumnName])
+                    )
+
+                if getCurrencyColumnName is not None and getCurrencyColumnName in row:
+                    conditions.append(
+                        Transaction.ccy == str(row[getCurrencyColumnName])
+                    )
+                stmt = select(Transaction).where(*conditions).limit(1)
                 result = await db.execute(stmt)
                 existing_record = result.scalar_one_or_none()
 
@@ -52,22 +70,28 @@ class UploadRepository:
                     duplicates.append(row)
                     continue
 
-                new_records.append(
-                    Transaction(
-                        channel_id=fileJson["channel_id"],
-                        source_id=fileJson["source_id"],
-                        amount=str(row["amount"]),
-                        date=row["datetime"],
-                        account_number=row["account_masked"],
-                        ccy=row["currency"],
-                        recon_reference_number=fileJson["recon_reference_number"],
-                        otherDetails=json.dumps(row),
-                        file_transactions_id=fileJson["file_transactions_id"],
-                        created_by=fileJson["created_by"],
-                        updated_by=fileJson["updated_by"],
-                        version_number=fileJson["version_number"],
-                    )
-                )
+                data = {
+                    "channel_id": fileJson["channel_id"],
+                    "source_id": fileJson["source_id"],
+                    "otherDetails": json.dumps(row, default=str),
+                    "file_transactions_id": fileJson["file_transactions_id"],
+                    "created_by": fileJson["created_by"],
+                    "updated_by": fileJson["updated_by"],
+                    "version_number": fileJson["version_number"],
+                }
+                if getAmountColumnName is not None and getAmountColumnName in row:
+                    data["amount"] = str(row[getAmountColumnName])
+
+                if getDateTimeColumnName is not None and getDateTimeColumnName in row:
+                    data["date"] = str(row[getDateTimeColumnName])
+
+                if getAcountNumberColumnName is not None and getAcountNumberColumnName in row:
+                    data["account_number"] = str(row[getAcountNumberColumnName])
+
+                if getCurrencyColumnName is not None and getCurrencyColumnName in row:
+                    data["ccy"] = str(row[getCurrencyColumnName])  
+                
+                new_records.append(Transaction(**data))
 
             if new_records:
                 db.add_all(new_records)

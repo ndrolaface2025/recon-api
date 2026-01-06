@@ -3,7 +3,7 @@ import os, shutil
 from uuid import uuid4
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from app.workers.tasks import start_recon_job
+# from app.workers.tasks import start_recon_job
 from app.utils.predict_source import predict_source_with_fallback
 from app.utils.auto_map_columns import auto_map_columns
 from app.utils.parser import parse_file
@@ -13,20 +13,20 @@ from app.db.models.source_config import SourceConfig
 router = APIRouter(prefix="/api/v1/reconciliations", tags=["reconciliations"])
 TEMP_UPLOAD_DIR = "/tmp/recon_uploads"
 os.makedirs(TEMP_UPLOAD_DIR, exist_ok=True)
-@router.post("/run")
-async def run_recon(channel: str, files: list[UploadFile] = File(...), sources: str = "SWITCH,CBS"):
-    source_list = [s.strip().upper() for s in sources.split(",")]
-    if len(files) != len(source_list):
-        raise HTTPException(status_code=400, detail="number of files must match number of sources")
-    saved = {}
-    for idx, f in enumerate(files):
-        filename = f"{uuid4().hex}_{f.filename}"
-        path = os.path.join(TEMP_UPLOAD_DIR, filename)
-        with open(path, "wb") as fh:
-            shutil.copyfileobj(f.file, fh)
-        saved[source_list[idx]] = path
-    task = start_recon_job.delay(channel.upper(), saved)
-    return {"task_id": task.id, "status": "queued"}
+# @router.post("/run")
+# async def run_recon(channel: str, files: list[UploadFile] = File(...), sources: str = "SWITCH,CBS"):
+#     source_list = [s.strip().upper() for s in sources.split(",")]
+#     if len(files) != len(source_list):
+#         raise HTTPException(status_code=400, detail="number of files must match number of sources")
+#     saved = {}
+#     for idx, f in enumerate(files):
+#         filename = f"{uuid4().hex}_{f.filename}"
+#         path = os.path.join(TEMP_UPLOAD_DIR, filename)
+#         with open(path, "wb") as fh:
+#             shutil.copyfileobj(f.file, fh)
+#         saved[source_list[idx]] = path
+#     task = start_recon_job.delay(channel.upper(), saved)
+#     return {"task_id": task.id, "status": "queued"}
 
 
 
@@ -71,9 +71,9 @@ async def detect_source(file: UploadFile = File(...), db: AsyncSession = Depends
             "CARD": 3,
             "CARDS": 3,
             "CARD_NETWORK_FILE": 3,
-            "SWITCH_FILE": None,  # Will be determined by LLM channel
-            "CBS_BANK_FILE": None,  # CBS can be part of any channel
-            "BANK": None
+            "SWITCH_FILE": 1,  # Will be determined by LLM channel
+            "CBS_BANK_FILE": 1,  # CBS can be part of any channel
+            "BANK": 1
         }
         
         # Determine channel ID

@@ -10,6 +10,7 @@ from .logs_system import SystemLog
 from .upload_api_config import UploadAPIConfig
 from .upload_schedulars_config import UploadSchedulerConfig
 from .matching_rule_config import MatchingRuleConfig
+from .system_batch_config import SystemBatchConfig
 
 __all__ = [
     'ModuleConfig',
@@ -23,5 +24,6 @@ __all__ = [
     'SystemLog',
     'UploadAPIConfig',
     'UploadSchedulerConfig',
-    'MatchingRuleConfig'
+    'MatchingRuleConfig',
+    'SystemBatchConfig'
 ]

@@ -11,9 +11,9 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 def llm_detect_source(headers, sample_rows):
     prompt = f"""
             You are part of a banking reconciliation system.
-            You must classify the uploaded file into EXACTLY ONE category.
+            You must classify the uploaded file into EXACTLY ONE source type AND identify its channel.
 
-                Categories and definitions:
+                SOURCE TYPES:
 
                 1. ATM_FILE
                 - ATM transaction log with customer/operational details
@@ -48,6 +48,31 @@ def llm_detect_source(headers, sample_rows):
                 - PAN based settlement file
                 - Network specific fields (interchange, scheme codes)
 
+                CHANNELS (Transaction Type):
+                
+                1. ATM - ATM withdrawals/deposits
+                   - Indicators: TerminalID column, ATM fields, withdrawal/deposit transactions
+                   - Processing codes: 01xxxx (withdrawal), 21xxxx (deposit), 31xxxx (balance inquiry)
+                   - Description/Narration mentions: "Terminal", "ATM", "Withdrawal", "Cash", "Dispense"
+                
+                2. POS - Point of Sale/merchant transactions
+                   - Indicators: MerchantID, MerchantName, merchant category codes
+                   - Processing codes: 00xxxx (purchase), 20xxxx (refund)
+                   - May have acquirer/merchant settlement data
+                   - Description/Narration mentions: "Merchant", "POS", "Purchase", "Sale", "Payment"
+                
+                3. CARDS - Card network settlement/interchange
+                   - Indicators: PAN (card number), interchange fees, scheme codes
+                   - Settlement/clearing files from Visa/Mastercard
+                   - May contain network-specific fields
+                   - Description/Narration mentions: "Card", "Interchange", "Scheme", "Network"
+
+                CHANNEL DETECTION STRATEGY:
+                1. First check column headers for TerminalID, MerchantID, or PAN-related fields
+                2. If unclear from headers, examine Description/Narration/Message fields in sample rows
+                3. Look for keywords: "Terminal/ATM" → ATM, "Merchant/POS" → POS, "Card/Interchange" → CARDS
+                4. If no clear indicators in headers or data, return "UNKNOWN"
+
                 CRITICAL RULES:
                 1. If file has Location field AND TransactionType → It's ATM_FILE (operational ATM log)
                 2. If file has MTI AND Direction fields → It's SWITCH_FILE (technical switch messages)
@@ -55,20 +80,27 @@ def llm_detect_source(headers, sample_rows):
                 4. If file has Account_masked AND Location → It's ATM_FILE (even if it has RRN/STAN)
                 5. If file has BOTH switch fields AND posted status → It's CBS_BANK_FILE
                 6. ATM_FILE focuses on customer transactions; SWITCH_FILE focuses on message routing
+                7. SWITCH files can be for ATM, POS, or CARDS - check ProcessingCode, MerchantID, or terminal type
+                8. If TerminalID present + NO MerchantID → likely ATM channel
+                9. If MerchantID or MerchantName present → likely POS channel
+                10. If strong card/PAN focus + interchange/scheme data → likely CARDS channel
 
                 Input file signals:
                 Headers: {headers}
                 Sample Rows: {sample_rows}
 
                 Rules:
-                - Choose the MOST LIKELY category
+                - Choose the MOST LIKELY source type based on column headers and data patterns
+                - Identify the channel by checking BOTH column headers AND sample data content
+                - For CBS files: Examine Description/Narration fields for channel keywords
                 - If multiple match, explain why one is preferred
-                - Do NOT guess randomly
+                - Do NOT guess randomly - use "UNKNOWN" if truly ambiguous
 
                 Respond ONLY in JSON:
                 {{
                 "source": "ATM_FILE | SWITCH_FILE | CBS_BANK_FILE | CARD_NETWORK_FILE",
-                "reason": "short explanation"
+                "channel": "ATM | POS | CARDS | UNKNOWN",
+                "reason": "short explanation of both source and channel"
                 }}
 """
 

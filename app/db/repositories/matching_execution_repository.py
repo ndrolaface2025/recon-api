@@ -3,14 +3,23 @@ from sqlalchemy import text
 from typing import Optional, Dict, Any, List
 import logging
 
+from app.engine.matching_dispatcher import MatchingRuleDispatcher
+
 logger = logging.getLogger(__name__)
 
 
 class MatchingExecutionRepository:
-    """Repository for executing matching rules via stored procedure"""
+    """
+    Repository for executing matching rules
+    
+    Uses intelligent dispatcher to route rules to:
+    - Stored Procedure: Simple AND conditions (fast)
+    - Application Layer: Complex OR/parentheses (flexible)
+    """
 
     def __init__(self, db: AsyncSession):
         self.db = db
+        self.dispatcher = MatchingRuleDispatcher(db)
 
     async def execute_matching_rule(
         self,
@@ -20,7 +29,11 @@ class MatchingExecutionRepository:
         min_sources: Optional[int] = None
     ) -> Dict[str, Any]:
         """
-        Execute the matching rule stored procedure
+        Execute matching rule via intelligent dispatcher
+        
+        The dispatcher analyzes rule complexity and routes to:
+        - Stored Procedure (Database): Simple AND conditions
+        - Application Layer (Python): Complex OR/parentheses
         
         Args:
             rule_id: ID of the matching rule to execute
@@ -29,80 +42,63 @@ class MatchingExecutionRepository:
             min_sources: Minimum sources required (None=all sources, 2=partial 2 out of 3, etc.)
             
         Returns:
-            Dictionary containing execution results or dry run information
-            
-        Raises:
-            Exception: If the stored procedure fails or rule not found
-        """
-        try:
-            # Build the SQL call
-            sql = text("""
-                SELECT * FROM fn_execute_matching_rule(
-                    :rule_id,
-                    :channel_id,
-                    :dry_run,
-                    :min_sources
-                )
-            """)
-            
-            # Execute the stored procedure
-            result = await self.db.execute(
-                sql,
-                {
-                    "rule_id": rule_id,
-                    "channel_id": channel_id,
-                    "dry_run": dry_run,
-                    "min_sources": min_sources
-                }
-            )
-            
-            # Fetch the result
-            row = result.fetchone()
-            
-            if dry_run:
-                # For dry run, check PostgreSQL notices/logs
-                # Note: In dry run mode, the function returns immediately with RETURN
-                # The RAISE NOTICE output would be in PostgreSQL logs
-                return {
-                    "rule_id": rule_id,
-                    "dry_run": True,
-                    "match_type": "FULL" if min_sources is None else "PARTIAL",
-                    "message": "Dry run completed. Check PostgreSQL logs for generated SQL.",
-                    "note": "Use dry_run=false to execute actual matching"
-                }
-            
-            if row is None:
-                return {
-                    "rule_id": rule_id,
-                    "matched_count": 0,
-                    "transaction_ids": [],
-                    "execution_time_ms": 0,
-                    "match_type": "FULL" if min_sources is None else "PARTIAL",
-                    "message": "No matches found"
-                }
-            
-            # Parse the result
-            result_dict = {
-                "rule_id": row[0],
-                "matched_count": row[1] if row[1] else 0,
-                "transaction_ids": list(row[2]) if row[2] else [],
-                "execution_time_ms": row[3] if row[3] else 0,
-                "match_type": row[4] if len(row) > 4 else "FULL"
+            Dictionary containing execution results with dispatcher metadata:
+            {
+                "rule_id": int,
+                "matched_count": int,
+                "transaction_ids": List[int],
+                "execution_time_ms": int,
+                "match_type": str,
+                "executor": "stored_procedure" | "application_layer",
+                "complexity": "SIMPLE" | "COMPLEX"
             }
             
-            # Commit the transaction updates
-            if not dry_run and result_dict["matched_count"] > 0:
-                await self.db.commit()
+        Raises:
+            Exception: If the execution fails or rule not found
+        """
+        try:
+            # Use dispatcher to intelligently route the rule
+            result = await self.dispatcher.execute_matching_rule(
+                rule_id=rule_id,
+                channel_id=channel_id,
+                dry_run=dry_run,
+                min_sources=min_sources
+            )
+            
+            # Log execution details
+            if not dry_run:
                 logger.info(
-                    f"Matched {result_dict['matched_count']} transactions "
-                    f"using rule {rule_id} ({result_dict['match_type']}) in {result_dict['execution_time_ms']}ms"
+                    f"Rule {rule_id} executed via {result.get('executor', 'unknown')} "
+                    f"({result.get('complexity', 'unknown')} complexity): "
+                    f"{result['matched_count']} matches in {result['execution_time_ms']}ms"
                 )
             
-            return result_dict
+            return result
             
         except Exception as e:
-            await self.db.rollback()
             logger.error(f"Error executing matching rule {rule_id}: {str(e)}")
+            raise
+    
+    async def analyze_rule(self, rule_id: int) -> Dict[str, Any]:
+        """
+        Analyze a rule without executing it
+        
+        Shows:
+        - Rule complexity (SIMPLE or COMPLEX)
+        - Execution strategy (stored_procedure or application_layer)
+        - Features detected (OR operators, nested groups, etc.)
+        - Transaction counts and estimated execution time
+        
+        Args:
+            rule_id: ID of the matching rule to analyze
+            
+        Returns:
+            Dictionary with complete rule analysis
+        """
+        try:
+            return await self.dispatcher.analyze_rule(rule_id)
+        except Exception as e:
+            logger.error(f"Error analyzing rule {rule_id}: {str(e)}")
             raise
 
     async def get_matching_statistics(self, rule_id: Optional[int] = None) -> Dict[str, Any]:

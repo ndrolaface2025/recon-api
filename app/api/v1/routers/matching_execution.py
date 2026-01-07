@@ -147,6 +147,82 @@ async def execute_matching_rule(
 
 
 @router.get(
+    "/analyze/{rule_id}",
+    response_model=Dict[str, Any],
+    summary="Analyze matching rule complexity",
+    description="""
+    Analyze a matching rule without executing it.
+    
+    **Returns:**
+    - Rule complexity (SIMPLE or COMPLEX)
+    - Execution strategy (stored_procedure or application_layer)
+    - Features detected (OR operators, nested groups, source-specific matching)
+    - Transaction counts per source
+    - Estimated execution time
+    
+    **Use Cases:**
+    - Before executing: understand which engine will process the rule
+    - Debugging: see why a rule is marked as complex
+    - Optimization: estimate performance before execution
+    """,
+    responses={
+        200: {
+            "description": "Rule analysis completed",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "rule_id": 1,
+                        "rule_name": "ATM-3WAY-RRN-WITH-OR-AMOUNT",
+                        "complexity": "COMPLEX",
+                        "executor": "application_layer",
+                        "reason": "Rule contains complex logic (OR_operator, source_specific_matching)",
+                        "features_detected": ["OR_operator", "source_specific_matching"],
+                        "sources": ["ATM", "SWITCH", "CBS"],
+                        "transaction_counts": {"ATM": 15, "SWITCH": 15, "CBS": 15},
+                        "estimated_execution_time_ms": 120
+                    }
+                }
+            }
+        }
+    }
+)
+async def analyze_matching_rule(
+    rule_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Analyze a matching rule to determine execution strategy and complexity
+    """
+    try:
+        repo = MatchingExecutionRepository(db)
+        analysis = await repo.analyze_rule(rule_id)
+        return analysis
+        
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"Error analyzing rule {rule_id}: {error_msg}")
+        
+        if "not found" in error_msg.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "error": "Rule not found",
+                    "detail": f"Matching rule {rule_id} not found",
+                    "rule_id": rule_id
+                }
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={
+                    "error": "Analysis failed",
+                    "detail": error_msg,
+                    "rule_id": rule_id
+                }
+            )
+
+
+@router.get(
     "/statistics",
     response_model=Dict[str, Any],
     summary="Get matching statistics",

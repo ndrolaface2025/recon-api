@@ -3,15 +3,12 @@ from sqlalchemy.orm import Session
 from app.services.services import get_service
 from app.services.manualTransactionService import ManualTransactionService
 from app.services.transactionService import TransactionService
-import json
 from fastapi import HTTPException
-from typing import List
 
 router = APIRouter()
 manualTransactionService = ManualTransactionService()
 transactionService = TransactionService()
 
-import json
  
 @router.patch("/manual-transactions")
 async def patch_manual_transactions(

@@ -72,9 +72,9 @@ class ManualTransactionService:
         return result.scalar()
 
     @staticmethod
-    def patch(db: Session, ids: list[int], payload: dict):
+    def patch(db: Session, manual_txn_ids: list[int], payload: dict):
         txns = db.query(ManualTransaction).filter(
-            ManualTransaction.id.in_(ids)
+            ManualTransaction.manual_txn_id.in_(manual_txn_ids)
         ).all()
 
         if not txns:
@@ -100,7 +100,7 @@ class ManualTransactionService:
     
     # @staticmethod
     # def get_all(db: Session):
-    #     return db.query(manualTransaction).all()
+    #     return db.query(ManualTransaction).all()
     
     @staticmethod
     def get_all_json(
@@ -109,7 +109,7 @@ class ManualTransactionService:
     ):
         results = (
             db.query(
-                ManualTransaction.id,
+                ManualTransaction.manual_txn_id,
                 ManualTransaction.channel_id,
                 ManualTransaction.source_id,
                 ManualTransaction.json_file
@@ -120,6 +120,6 @@ class ManualTransactionService:
             )
             .all()
         )
-        return [{"id": r.id,"channel_id": r.channel_id,"source_id": r.source_id, "json_file": r.json_file} for r in results]
+        return [{"manual_txn_id": r.manual_txn_id,"channel_id": r.channel_id,"source_id": r.source_id, "json_file": r.json_file} for r in results]
 
 

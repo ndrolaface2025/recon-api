@@ -6,6 +6,7 @@ from app.db.base import Base
 class ManualTransaction(Base):
     __tablename__ = "tbl_txn_manuals"
     id = Column(BigInteger, primary_key=True, index=True)
+    manual_txn_id = Column(String(50), index=True)
     recon_reference_number = Column(String(50), index=True)
     channel_id = Column(String(50))
     source_id = Column(String(50))

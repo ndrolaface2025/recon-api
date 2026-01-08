@@ -5,9 +5,9 @@ from app.db.models.transactions import Transaction
 class TransactionService:
 
     @staticmethod
-    def patch(db: Session, ids: list[int], recon_reference_number: str, payload: dict):
+    def patch(db: Session, txn_ids: list[int], recon_reference_number: str, payload: dict):
         txns = db.query(Transaction).filter(
-            Transaction.id.in_(ids)
+            Transaction.txn_id.in_(txn_ids)
         ).all()
 
         if not txns:

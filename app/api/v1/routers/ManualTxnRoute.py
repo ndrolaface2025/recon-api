@@ -10,33 +10,74 @@ manualTransactionService = ManualTransactionService()
 transactionService = TransactionService()
 
  
+# @router.patch("/manual-transactions")
+# async def patch_manual_transactions(
+#     payload: dict = Body(...),
+#     db: Session = Depends(get_service)
+# ):
+#     ids = payload.get("ids")
+
+#     if not ids or not isinstance(ids, list):
+#         raise HTTPException(
+#             status_code=400,
+#             detail="ids must be a non-empty list"
+#         )
+
+#     manual_result = ManualTransactionService.patch(
+#         db,
+#         ids,
+#         payload
+#     )
+
+#     recon_ref = manual_result["recon_reference_number"]
+
+#     if payload.get("reconciled_status") == "MATCHED":
+#         TransactionService.patch(
+#             db,
+#             ids,
+#             recon_ref,
+#             payload
+#         )
+
+#     return {
+#         "success": True,
+#         "message": "Manual and master transactions updated successfully",
+#         "data": manual_result["transactions"],
+#         "recon_reference_number": recon_ref
+#     }
 @router.patch("/manual-transactions")
-async def patch_manual_transactions(
+def patch_manual_transactions(
     payload: dict = Body(...),
     db: Session = Depends(get_service)
 ):
-    ids = payload.get("ids")
+    manual_txn_ids = payload.pop("manual_txn_ids", None)
 
-    if not ids or not isinstance(ids, list):
+    if not manual_txn_ids or not isinstance(manual_txn_ids, list):
         raise HTTPException(
             status_code=400,
-            detail="ids must be a non-empty list"
+            detail="manual_txn_ids must be a non-empty list"
         )
 
     manual_result = ManualTransactionService.patch(
-        db,
-        ids,
-        payload
+        db=db,
+        manual_txn_ids=manual_txn_ids,
+        payload=payload
     )
 
     recon_ref = manual_result["recon_reference_number"]
 
     if payload.get("reconciled_status") == "MATCHED":
+
+        txn_ids = [
+            txn.manual_txn_id  
+            for txn in manual_result["transactions"]
+        ]
+
         TransactionService.patch(
-            db,
-            ids,
-            recon_ref,
-            payload
+            db=db,
+            txn_ids=txn_ids,
+            recon_reference_number=recon_ref,
+            payload=payload
         )
 
     return {

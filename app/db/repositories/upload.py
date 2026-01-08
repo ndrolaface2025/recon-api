@@ -1,14 +1,18 @@
 import json
+from turtle import update
 from typing import Any, Dict, List
 from datetime import datetime
 
-from sqlalchemy import select, tuple_
+from sqlalchemy import Integer, cast, delete, func, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.models.channel_config import ChannelConfig
+from app.db.models.source_config import SourceConfig
 from app.db.models.transactions import Transaction
 from app.db.models.upload_file import UploadFile
 from app.config import settings
-
+from app.db.models.user_config import UserConfig
+from sqlalchemy.dialects.postgresql import JSONB
 class UploadRepository:
 
     @staticmethod
@@ -373,3 +377,171 @@ class UploadRepository:
         except Exception as e:
             print(f"uploadRepository-getUploadProgress: {str(e)}")
             return {"error": True, "message": str(e)}
+        
+    async def update_success_count(
+        db: AsyncSession,
+        file_transaction_id: int,
+        success_count: int,
+        duplicate_count:int
+    ):
+        # 1️⃣ Fetch existing record_details
+        stmt = select(UploadFile.record_details).where(
+            UploadFile.id == file_transaction_id
+        )
+        result = await db.execute(stmt)
+        record_details = result.scalar_one_or_none()
+
+        if not record_details:
+            return
+
+        # 2️⃣ Convert JSON → dict
+        if isinstance(record_details, str):
+            record_details = json.loads(record_details)
+
+        # 3️⃣ Update only success
+        record_details["success"] = success_count
+        record_details["duplicate"] = duplicate_count
+        # record_details["status"] = 1
+
+        # Optional: auto-calc failed
+        if "total_records" in record_details:
+            record_details["failed"] = (
+                record_details["total_records"] - success_count
+            )
+
+        # 4️⃣ Update only this column
+        update_stmt = (
+            update(UploadFile)
+            .where(UploadFile.id == file_transaction_id)
+            .values(record_details=json.dumps(record_details))
+        )
+
+        await db.execute(update_stmt)
+        await db.commit()
+        
+    @staticmethod
+    async def getFileList(db: AsyncSession, offset: int, limit: int):
+        try:
+            # Total count
+            total_stmt = select(func.count()).select_from(UploadFile)
+            total_result = await db.execute(total_stmt)
+            total = total_result.scalar()
+
+            # Data query
+            stmt = (
+                select(
+                    UploadFile,
+                    UserConfig.id.label("user_id"),
+                    UserConfig.f_name.label("f_name"),
+                    UserConfig.m_name.label("m_name"),
+                    UserConfig.l_name.label("l_name"),
+                    UserConfig.email.label("email"),
+                    ChannelConfig.id.label("channel_id"),
+                    ChannelConfig.channel_name.label("channel_name"),
+                    SourceConfig.id.label("source_id"),
+                    SourceConfig.source_name.label("source_name"),
+                    SourceConfig.source_type.label("source_type"),
+                )
+                .outerjoin(UserConfig, UserConfig.id == UploadFile.created_by)
+                .outerjoin(ChannelConfig, ChannelConfig.id == UploadFile.channel_id)
+                .outerjoin(
+                    SourceConfig,
+                    cast(
+                        UploadFile.file_details.cast(JSONB)["file_type"].astext,
+                        Integer
+                    ) == SourceConfig.id
+                )
+                .order_by(UploadFile.created_at.desc())
+                .offset(offset)
+                .limit(limit)
+            )
+
+            result = await db.execute(stmt)
+            rows = result.all()
+            data = []
+            for upload, user_id, f_name, m_name, l_name, email, channel_id, channel_name,source_id, source_name, source_type in rows:
+                file_details_obj = None
+                file_record_obj = None
+
+                if upload.file_details:
+                    try:
+                        file_details_obj = json.loads(upload.file_details)
+                    except json.JSONDecodeError:
+                        pass
+
+                if upload.record_details:
+                    try:
+                        file_record_obj = json.loads(upload.record_details)
+                    except json.JSONDecodeError:
+                        pass
+                data.append({
+                    "id": upload.id,
+                    "file_name": upload.file_name,
+                    "file_details": file_details_obj,
+                    "status": upload.status,
+                    "record_details": file_record_obj,
+                    "created_at": upload.created_at,
+                    "version_number": upload.version_number,
+
+                    "user": {
+                        "id": user_id,
+                        "name": " ".join(filter(None, [f_name, m_name, l_name])),
+                        "email": email,
+                    } if user_id else None,
+
+                    "channel": {
+                        "id": channel_id,
+                        "name": channel_name,
+                    } if channel_id else None,
+                    "source": {
+                        "id": source_id,
+                        "name": source_name,
+                        "type": source_type,
+                    } if source_id else None
+                })
+            return {
+                "status": "success",
+                "offset": offset,
+                "limit": limit,
+                "total": total,
+                "data": data
+            }
+        except Exception as e:
+            # Rollback is safe even for SELECTs
+            await db.rollback()
+            print("UploadRepository.getFileList error:", str(e))
+            return {
+                "status": "error",
+                "message": "Failed to fetch upload file list",
+                "error": str(e)
+            }
+        
+    async def deleteFileAndTransactions(db: AsyncSession, file_id: int) -> bool:
+        
+        result = await db.execute(
+            select(UploadFile).where(UploadFile.id == file_id)
+        )
+        file_record = result.scalar_one_or_none()
+
+        if not file_record:
+            return False
+
+        try:
+            # 1️⃣ Delete related transactions
+            await db.execute(
+                delete(Transaction).where(
+                    Transaction.file_transactions_id == file_id
+                )
+            )
+
+            # 2️⃣ Delete file upload record
+            await db.execute(
+                delete(UploadFile).where(UploadFile.id == file_id)
+            )
+
+            await db.commit()
+            return True
+
+        except Exception as e:
+            await db.rollback()
+            raise e

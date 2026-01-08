@@ -58,7 +58,7 @@ class UploadService:
             df.columns = [str(col).strip().lower() for col in df.columns]
             fileData = df.to_dict(orient="records")
             fileDetails = {"file_name": file.filename, 
-                        "file_details": {"file_type": 1, "file_size": "{:.2f} KB".format(len(contents)/1024)},
+                        "file_details": {"file_type": source_id, "file_size": "{:.2f} KB".format(len(contents)/1024)},
                         "channel_id": channel_id, 
                         "status": 0,
                         "record_details": {"total_records": total_records, "success": 0, "failed": 0},
@@ -99,7 +99,7 @@ class UploadService:
             getAmountColumnName = self.get_mapped_to_by_channel_column(required_mappings, "amount")
             getAcountNumberColumnName = self.get_mapped_to_by_channel_column(required_mappings, "account_number")
             getCurrencyColumnName = self.get_mapped_to_by_channel_column(required_mappings, "currency")
-            if total_records <= 20000:
+            if total_records <= 500:
                 savefiledata = await UploadRepository.saveFileDetails(
                     self.db, 
                     fileData, 
@@ -298,3 +298,47 @@ class UploadService:
         except Exception as e:
             print(f"Error in process_file_in_chunks: {str(e)}")
             raise
+
+
+    async def get_file_list(self, offset: int, limit: int):
+        getResult =  await UploadRepository.getFileList(self.db, offset, limit)
+        if getResult.get("status") == "success":
+            return {
+                "status": "success",
+                "errors": False,
+                "message": "File list fetched successfully",
+                "result": {
+                    "data": getResult.get("data", []),
+                    "meta": {
+                        "offset": getResult.get("offset"),
+                        "limit": getResult.get("limit"),
+                        "total": getResult.get("total"),
+                    }
+                }
+            }
+
+        return {
+            "status": "error",
+            "errors": True,
+            "message": getResult.get("message", "Failed to fetch file list"),
+            "result": {
+                "data": [],
+                "meta": {}
+            }
+        }
+    
+    async def deleteFileAndTransactions(self, file_id: int):
+        getResult =  await UploadRepository.deleteFileAndTransactions(self.db, file_id)
+        if getResult:
+            return {
+                "status": "success",
+                "errors": False,
+                "message": "File and related record deleted successfully",
+                "result": []
+            }
+        return {
+            "status": "error",
+            "errors": True,
+            "message": "Failed to delete the record",
+            "result": []
+        }

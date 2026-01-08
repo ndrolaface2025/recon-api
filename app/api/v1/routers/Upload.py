@@ -3,7 +3,7 @@ import json
 import os
 import time
 import pandas as pd
-from fastapi import APIRouter, Depends, Form, UploadFile, File, HTTPException
+from fastapi import APIRouter, Body, Depends, Form, UploadFile, File, HTTPException
 from app.services.services import get_service
 from app.services.upload_service import UploadService
 from app.db.repositories.upload import UploadRepository
@@ -61,3 +61,11 @@ async def get_upload_progress(file_id: int, db: AsyncSession = Depends(get_db)):
         "status": "success",
         "data": result
     }
+
+@router.get("/file-list")
+async def getUplaodFileList(offset:int = 0, limit:int= 10, service: UploadService = Depends(get_service(UploadService))):
+    return await service.get_file_list(offset, limit)
+
+@router.put("/delete")
+async def delete_file(delete_id: int = Body(..., embed=True),service: UploadService = Depends(get_service(UploadService))):
+    return await service.deleteFileAndTransactions(delete_id)

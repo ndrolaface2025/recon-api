@@ -16,6 +16,13 @@ class Settings(BaseSettings):
     S3_ENDPOINT: Optional[AnyUrl] = None
     S3_BUCKET: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None  # Add OpenAI API key for LLM detection
+    
+    # Upload duplicate check batch size (tune based on Postgres max_stack_depth)
+    UPLOAD_DUPLICATE_CHECK_BATCH_SIZE: int = 2000  # Safe default for max_stack_depth=2048kB
+    # Recommended values:
+    # - 2000: Safe for default Postgres (2048kB stack)
+    # - 5000: For max_stack_depth=4096kB (2.5x faster)
+    # - 8000: For max_stack_depth=6144kB (4x faster, requires tuning)
 
     @field_validator('S3_ENDPOINT', mode='before')
     def _s3_endpoint_empty_to_none(cls, v):

@@ -39,3 +39,4 @@ Thumbs.db
 *.sql
 docs/
 *.csv
+dev-tools/

@@ -17,6 +17,13 @@ class Settings(BaseSettings):
     S3_BUCKET: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None  # Add OpenAI API key for LLM detection
     
+    # Celery Configuration
+    CELERY_BROKER_URL: Optional[str] = None
+    CELERY_RESULT_BACKEND: Optional[str] = None
+    CELERY_TASK_TRACK_STARTED: bool = True
+    CELERY_TASK_TIME_LIMIT: int = 30 * 60  # 30 minutes
+    CELERY_TASK_SOFT_TIME_LIMIT: int = 25 * 60  # 25 minutes
+    
     # Upload duplicate check batch size (tune based on Postgres max_stack_depth)
     UPLOAD_DUPLICATE_CHECK_BATCH_SIZE: int = 2000  # Safe default for max_stack_depth=2048kB
     # Recommended values:

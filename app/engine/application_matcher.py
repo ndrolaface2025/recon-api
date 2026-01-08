@@ -7,7 +7,8 @@ Processes transactions in Python when database stored procedure cannot handle th
 from typing import Dict, Any, List, Optional, Set, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text, select
-from datetime import datetime
+from datetime import datetime, date, timedelta
+import re
 import logging
 
 logger = logging.getLogger(__name__)
@@ -131,15 +132,13 @@ class ApplicationMatcher:
             query = """
                 SELECT 
                     t.id,
-                    t.rrn,
+                    t.reference_number as rrn,
                     t.amount,
-                    t.transaction_date,
-                    t.transaction_time,
-                    t.card_number,
-                    t.terminal_id,
-                    t.merchant_id,
-                    t.currency_code,
-                    t.response_code,
+                    t.date as transaction_date,
+                    t.account_number,
+                    t.ccy as currency_code,
+                    t."otherDetails",
+                    t.comment,
                     s.source_name
                 FROM tbl_txn_transactions t
                 JOIN tbl_cfg_source s ON t.source_id = s.id
@@ -148,7 +147,7 @@ class ApplicationMatcher:
             """
             
             if channel_id:
-                query += " AND s.channel_id = :channel_id"
+                query += " AND t.channel_id = :channel_id"
             
             params = {"source_name": source_name}
             if channel_id:
@@ -161,15 +160,18 @@ class ApplicationMatcher:
                 {
                     "id": row.id,
                     "rrn": row.rrn,
+                    "reference_number": row.rrn,
                     "amount": float(row.amount) if row.amount else None,
                     "transaction_date": row.transaction_date,
-                    "transaction_time": row.transaction_time,
-                    "card_number": row.card_number,
-                    "terminal_id": row.terminal_id,
-                    "merchant_id": row.merchant_id,
+                    "date": row.transaction_date,
+                    "account_number": row.account_number,
                     "currency_code": row.currency_code,
-                    "response_code": row.response_code,
-                    "source_name": row.source_name
+                    "otherDetails": row.otherDetails,
+                    "comment": row.comment,
+                    "source_name": row.source_name,
+                    # Parse otherDetails if it contains pipe-separated values
+                    # Format: CARD|TERMINAL|MERCHANT
+                    **(self._parse_other_details(row.otherDetails) if row.otherDetails else {})
                 }
                 for row in rows
             ]
@@ -177,6 +179,27 @@ class ApplicationMatcher:
             logger.info(f"Fetched {len(transactions[source_name])} transactions from {source_name}")
         
         return transactions
+    
+    def _parse_other_details(self, other_details: str) -> Dict[str, Any]:
+        """
+        Parse otherDetails field which may contain pipe-separated values
+        Format: CARD|TERMINAL|MERCHANT or similar
+        """
+        try:
+            parts = other_details.split('|')
+            parsed = {}
+            
+            if len(parts) >= 1:
+                parsed['card_number'] = parts[0]
+            if len(parts) >= 2:
+                parsed['terminal_id'] = parts[1]
+            if len(parts) >= 3:
+                parsed['merchant_id'] = parts[2]
+            
+            return parsed
+        except Exception as e:
+            logger.warning(f"Error parsing otherDetails '{other_details}': {e}")
+            return {}
     
     def _find_matching_groups(
         self,
@@ -343,6 +366,30 @@ class ApplicationMatcher:
             return self._check_equality(values)
         elif operator == "within_tolerance":
             return self._check_within_tolerance(values, field, tolerance)
+        elif operator == "greater_than":
+            return self._check_comparison(values, condition, "greater_than")
+        elif operator == "less_than":
+            return self._check_comparison(values, condition, "less_than")
+        elif operator == "greater_than_or_equal":
+            return self._check_comparison(values, condition, "greater_than_or_equal")
+        elif operator == "less_than_or_equal":
+            return self._check_comparison(values, condition, "less_than_or_equal")
+        elif operator == "date_within_days":
+            return self._check_date_tolerance(values, condition, tolerance)
+        elif operator == "starts_with":
+            return self._check_string_operation(values, condition, "starts_with")
+        elif operator == "ends_with":
+            return self._check_string_operation(values, condition, "ends_with")
+        elif operator == "contains":
+            return self._check_string_operation(values, condition, "contains")
+        elif operator == "regex":
+            return self._check_string_operation(values, condition, "regex")
+        elif operator == "is_null":
+            return self._check_null_handling(values, True)
+        elif operator == "is_not_null":
+            return self._check_null_handling(values, False)
+        elif operator == "cross_field_equals":
+            return self._check_cross_field(transaction_group, condition)
         else:
             logger.warning(f"Unknown operator: {operator}")
             return False
@@ -382,6 +429,261 @@ class ApplicationMatcher:
             
             if diff > allowed_diff:
                 return False
+        
+        return True
+    
+    def _check_comparison(
+        self,
+        values: List[Any],
+        condition: Dict[str, Any],
+        comparison_type: str
+    ) -> bool:
+        """
+        Check comparison operators: >, <, >=, <=
+        
+        Supports two modes:
+        1. Compare against fixed value: {"field": "amount", "operator": "greater_than", "value": 100}
+        2. Compare between sources: {"field": "amount", "operator": "greater_than"}
+        
+        Examples:
+        - greater_than: All values > threshold OR first > second
+        - less_than: All values < threshold OR first < second
+        - greater_than_or_equal: All values >= threshold
+        - less_than_or_equal: All values <= threshold
+        """
+        if not values:
+            return False
+        
+        # Check if comparing against a fixed value
+        compare_value = condition.get("value")
+        
+        if compare_value is not None:
+            # Compare all values against fixed threshold
+            try:
+                threshold = float(compare_value)
+                numeric_values = [float(v) for v in values if v is not None]
+                
+                if not numeric_values:
+                    return False
+                
+                if comparison_type == "greater_than":
+                    return all(v > threshold for v in numeric_values)
+                elif comparison_type == "less_than":
+                    return all(v < threshold for v in numeric_values)
+                elif comparison_type == "greater_than_or_equal":
+                    return all(v >= threshold for v in numeric_values)
+                elif comparison_type == "less_than_or_equal":
+                    return all(v <= threshold for v in numeric_values)
+                    
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Cannot convert values to numeric for comparison: {e}")
+                return False
+        else:
+            # Compare values between sources (pairwise)
+            try:
+                numeric_values = [float(v) for v in values if v is not None]
+                
+                if len(numeric_values) < 2:
+                    return False
+                
+                # Check all consecutive pairs
+                for i in range(len(numeric_values) - 1):
+                    if comparison_type == "greater_than":
+                        if not (numeric_values[i] > numeric_values[i + 1]):
+                            return False
+                    elif comparison_type == "less_than":
+                        if not (numeric_values[i] < numeric_values[i + 1]):
+                            return False
+                    elif comparison_type == "greater_than_or_equal":
+                        if not (numeric_values[i] >= numeric_values[i + 1]):
+                            return False
+                    elif comparison_type == "less_than_or_equal":
+                        if not (numeric_values[i] <= numeric_values[i + 1]):
+                            return False
+                
+                return True
+                
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Cannot convert values to numeric for comparison: {e}")
+                return False
+        
+        return False
+    
+    def _check_date_tolerance(
+        self,
+        values: List[Any],
+        condition: Dict[str, Any],
+        tolerance: Optional[Dict[str, Any]]
+    ) -> bool:
+        """
+        Check if dates are within tolerance (±N days)
+        
+        Examples:
+        - {"field": "transaction_date", "operator": "date_within_days", "days": 1}
+        - Uses tolerance config: {"transaction_date": {"days": 2}}
+        """
+        if not values or None in values:
+            return False
+        
+        # Get tolerance days
+        field = condition.get("field")
+        days_tolerance = condition.get("days")
+        
+        # Check tolerance config if not in condition
+        if days_tolerance is None and tolerance and field:
+            tolerance_config = tolerance.get(field, {})
+            days_tolerance = tolerance_config.get("days", 0)
+        
+        if days_tolerance is None:
+            days_tolerance = 0
+        
+        try:
+            # Convert to date objects
+            date_values = []
+            for v in values:
+                if isinstance(v, datetime):
+                    date_values.append(v.date())
+                elif isinstance(v, date):
+                    date_values.append(v)
+                elif isinstance(v, str):
+                    # Try to parse date string
+                    date_values.append(datetime.fromisoformat(v.replace('Z', '+00:00')).date())
+                else:
+                    logger.warning(f"Cannot parse date value: {v}")
+                    return False
+            
+            # Check all pairs
+            for i in range(len(date_values) - 1):
+                diff = abs((date_values[i] - date_values[i + 1]).days)
+                if diff > days_tolerance:
+                    return False
+            
+            return True
+            
+        except (ValueError, TypeError, AttributeError) as e:
+            logger.warning(f"Error parsing dates: {e}")
+            return False
+    
+    def _check_string_operation(
+        self,
+        values: List[Any],
+        condition: Dict[str, Any],
+        operation: str
+    ) -> bool:
+        """
+        Check string operations: starts_with, ends_with, contains, regex
+        
+        Examples:
+        - starts_with: {"field": "account", "operator": "starts_with", "value": "ACC"}
+        - contains: {"field": "description", "operator": "contains", "value": "PAYMENT"}
+        - regex: {"field": "rrn", "operator": "regex", "pattern": "^[0-9]{12}$"}
+        """
+        if not values:
+            return False
+        
+        # Get comparison value or pattern
+        compare_value = condition.get("value")
+        pattern = condition.get("pattern")
+        
+        if operation == "regex":
+            if not pattern:
+                logger.warning("Regex operator requires 'pattern' parameter")
+                return False
+            
+            try:
+                compiled_pattern = re.compile(pattern)
+                return all(
+                    compiled_pattern.match(str(v)) is not None 
+                    for v in values if v is not None
+                )
+            except re.error as e:
+                logger.warning(f"Invalid regex pattern '{pattern}': {e}")
+                return False
+        
+        else:
+            # Other string operations
+            if compare_value is None:
+                logger.warning(f"{operation} operator requires 'value' parameter")
+                return False
+            
+            compare_str = str(compare_value).lower()
+            
+            for v in values:
+                if v is None:
+                    return False
+                
+                value_str = str(v).lower()
+                
+                if operation == "starts_with":
+                    if not value_str.startswith(compare_str):
+                        return False
+                elif operation == "ends_with":
+                    if not value_str.endswith(compare_str):
+                        return False
+                elif operation == "contains":
+                    if compare_str not in value_str:
+                        return False
+            
+            return True
+    
+    def _check_null_handling(
+        self,
+        values: List[Any],
+        should_be_null: bool
+    ) -> bool:
+        """
+        Check NULL handling: is_null, is_not_null
+        
+        Examples:
+        - is_null: {"field": "merchant_id", "operator": "is_null"}
+        - is_not_null: {"field": "merchant_id", "operator": "is_not_null"}
+        """
+        if not values:
+            return should_be_null
+        
+        if should_be_null:
+            # All values should be None/null
+            return all(v is None or v == '' or str(v).lower() == 'none' for v in values)
+        else:
+            # All values should NOT be None/null
+            return all(v is not None and v != '' and str(v).lower() != 'none' for v in values)
+    
+    def _check_cross_field(
+        self,
+        transaction_group: Dict[str, Dict[str, Any]],
+        condition: Dict[str, Any]
+    ) -> bool:
+        """
+        Check cross-field conditions: Compare different fields
+        
+        Examples:
+        - {"operator": "cross_field_equals", "field1": "debit_amount", "field2": "credit_amount"}
+        - {"operator": "cross_field_equals", "field1": "fee", "field2": "charges"}
+        """
+        field1 = condition.get("field1")
+        field2 = condition.get("field2")
+        
+        if not field1 or not field2:
+            logger.warning("cross_field_equals requires 'field1' and 'field2' parameters")
+            return False
+        
+        # Check each transaction in the group
+        for source_name, txn in transaction_group.items():
+            value1 = txn.get(field1)
+            value2 = txn.get(field2)
+            
+            # Both should exist
+            if value1 is None or value2 is None:
+                return False
+            
+            # Try numeric comparison first
+            try:
+                if float(value1) != float(value2):
+                    return False
+            except (ValueError, TypeError):
+                # Fall back to string comparison
+                if str(value1) != str(value2):
+                    return False
         
         return True
     

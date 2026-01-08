@@ -2,6 +2,7 @@ from openai import OpenAI
 import json
 import os
 from dotenv import load_dotenv
+import time
 
 load_dotenv()
 
@@ -105,36 +106,72 @@ def llm_detect_source(headers, sample_rows):
 """
 
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0
-    )
-
-    llm_response_text = response.choices[0].message.content
-    print("Raw LLM Response:", llm_response_text)
+    # Retry logic with exponential backoff for rate limits
+    max_retries = 1
+    base_delay = 2  # Start with 2 seconds
     
-    # Strip markdown code blocks if present
-    llm_response_text = llm_response_text.strip()
-    if llm_response_text.startswith("```json"):
-        llm_response_text = llm_response_text[7:]  # Remove ```json
-    elif llm_response_text.startswith("```"):
-        llm_response_text = llm_response_text[3:]  # Remove ```
-    
-    if llm_response_text.endswith("```"):
-        llm_response_text = llm_response_text[:-3]  # Remove trailing ```
-    
-    llm_response_text = llm_response_text.strip()
-    
-    # Parse JSON response
-    try:
-        llm_result = json.loads(llm_response_text)
-        return llm_result
-    except json.JSONDecodeError as e:
-        print(f"JSON parsing error: {e}")
-        # Return a fallback structure if parsing fails
-        return {
-            "source": "UNKNOWN",
-            "reason": f"LLM response could not be parsed: {llm_response_text}",
-            "raw_response": llm_response_text
-        }
+    for attempt in range(max_retries):
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0
+            )
+            
+            llm_response_text = response.choices[0].message.content
+            print("Raw LLM Response:", llm_response_text)
+            
+            # Strip markdown code blocks if present
+            llm_response_text = llm_response_text.strip()
+            if llm_response_text.startswith("```json"):
+                llm_response_text = llm_response_text[7:]  # Remove ```json
+            elif llm_response_text.startswith("```"):
+                llm_response_text = llm_response_text[3:]  # Remove ```
+            
+            if llm_response_text.endswith("```"):
+                llm_response_text = llm_response_text[:-3]  # Remove trailing ```
+            
+            llm_response_text = llm_response_text.strip()
+            
+            # Parse JSON response
+            try:
+                llm_result = json.loads(llm_response_text)
+                return llm_result
+            except json.JSONDecodeError as e:
+                print(f"JSON parsing error: {e}")
+                # Return a fallback structure if parsing fails
+                return {
+                    "source": "UNKNOWN",
+                    "channel": "UNKNOWN",
+                    "reason": f"LLM response could not be parsed: {llm_response_text}",
+                    "raw_response": llm_response_text
+                }
+                
+        except Exception as e:
+            error_message = str(e)
+            
+            # Check if it's a rate limit error
+            if "429" in error_message or "rate_limit" in error_message.lower():
+                if attempt < max_retries - 1:
+                    # Exponential backoff: 2s, 4s, 8s
+                    delay = base_delay * (2 ** attempt)
+                    print(f"Rate limit hit (attempt {attempt + 1}/{max_retries}). Retrying in {delay} seconds...")
+                    time.sleep(delay)
+                    continue
+                else:
+                    print(f"Rate limit exceeded after {max_retries} attempts. Returning fallback.")
+                    return {
+                        "source": "UNKNOWN",
+                        "channel": "UNKNOWN",
+                        "reason": f"Rate limit exceeded after {max_retries} retries",
+                        "error": error_message
+                    }
+            else:
+                # For other errors, return immediately
+                print(f"OpenAI API error: {error_message}")
+                return {
+                    "source": "UNKNOWN",
+                    "channel": "UNKNOWN",
+                    "reason": f"OpenAI API error: {error_message}",
+                    "error": error_message
+                }

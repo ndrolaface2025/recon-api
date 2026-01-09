@@ -1,6 +1,7 @@
 # celery_app.py
 from celery import Celery, signals
 import logging
+from app.config import settings
 
 # Configure logging BEFORE creating Celery app
 logging.basicConfig(
@@ -9,11 +10,18 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 
-# Create Celery instance
+# Create Celery instance using settings from config
 celery_app = Celery(
     "recon_workers",
-    broker="redis://localhost:6379/0",
-    backend="redis://localhost:6379/0",
+    broker=settings.CELERY_BROKER_URL,
+    backend=settings.CELERY_RESULT_BACKEND,
+)
+
+# Configure Celery
+celery_app.conf.update(
+    task_track_started=settings.CELERY_TASK_TRACK_STARTED,
+    task_time_limit=settings.CELERY_TASK_TIME_LIMIT,
+    task_soft_time_limit=settings.CELERY_TASK_SOFT_TIME_LIMIT,
 )
 
 # Use default 'celery' queue (no custom routing needed)

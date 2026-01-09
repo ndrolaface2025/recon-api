@@ -7,7 +7,7 @@ class ChannelConfig(Base):
     id = Column(BigInteger, primary_key=True)
     channel_name = Column(String(255), nullable=True)
     channel_description = Column(Text, nullable=True)
-    cannel_source_id = Column(BigInteger, ForeignKey("tbl_cfg_source.id"), nullable=True)
+    channel_source_id = Column(BigInteger, ForeignKey("tbl_cfg_source.id"), nullable=True)
     network_source_id = Column(BigInteger, ForeignKey("tbl_cfg_source.id"), nullable=True)
     cbs_source_id = Column(BigInteger, ForeignKey("tbl_cfg_source.id"), nullable=True)
     switch_source_id = Column(BigInteger, ForeignKey("tbl_cfg_source.id"), nullable=True)

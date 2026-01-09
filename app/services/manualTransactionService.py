@@ -5,12 +5,15 @@ from app.db.models.manualTransaction import ManualTransaction
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+from app.db.models.channel_config import ChannelConfig
+from app.db.models.source_config import SourceConfig
+from sqlalchemy import select
 
 
 class ManualTransactionService:
 
     @staticmethod
-    def create(db: Session, payload: dict):
+    async def create(db: Session, payload: dict):
         stmt = insert(ManualTransaction).values(**payload)
 
         # block insert ONLY when both fields match
@@ -18,7 +21,7 @@ class ManualTransactionService:
             constraint="uq_recon_rrn_source_ref"
         )
 
-        result = db.execute(stmt)
+        result = await db.execute(stmt)
         db.commit()
 
         # return existing or newly inserted row
@@ -46,8 +49,8 @@ class ManualTransactionService:
 
     #     return txns
     @staticmethod
-    def generate_recon_reference_number(db: Session) -> str:
-        result = db.execute(
+    async def generate_recon_reference_number(db: Session) -> str:
+        result = await db.execute(
             text("""
             SELECT
               'RN' || LPAD(
@@ -66,21 +69,22 @@ class ManualTransactionService:
                 3,
                 '0'
               )
-            FROM tbl_txn_manuals
+            FROM tbl_txn_manual
             """)
         )
         return result.scalar()
 
     @staticmethod
-    def patch(db: Session, manual_txn_ids: list[int], payload: dict):
-        txns = db.query(ManualTransaction).filter(
-            ManualTransaction.manual_txn_id.in_(manual_txn_ids)
-        ).all()
+    async def patch(db: Session, manual_txn_ids: list[int], payload: dict):
+        # txns = db.query(ManualTransaction).filter(
+        #     ManualTransaction.manual_txn_id.in_(manual_txn_ids)
+        # ).all()
+        txns = (await db.execute(select(ManualTransaction).where(ManualTransaction.manual_txn_id.in_(manual_txn_ids)))).scalars().all()
 
         if not txns:
             raise HTTPException(status_code=404, detail="Transaction not found")
 
-        recon_ref = ManualTransactionService.generate_recon_reference_number(db)
+        recon_ref = await ManualTransactionService.generate_recon_reference_number(db)
 
         for txn in txns:
             for field, value in payload.items():
@@ -89,7 +93,7 @@ class ManualTransactionService:
 
             txn.recon_reference_number = recon_ref
 
-        db.commit()
+        await db.commit()
 
         return {
             "transactions": txns,
@@ -102,24 +106,102 @@ class ManualTransactionService:
     # def get_all(db: Session):
     #     return db.query(ManualTransaction).all()
     
+    # @staticmethod
+    # def get_all_json(
+    #     db: Session,
+    #     username: str
+    # ):
+    #     results = (
+    #         db.query(
+    #             ManualTransaction.manual_txn_id,
+    #             ManualTransaction.channel_id,
+    #             ManualTransaction.source_id,
+    #             ManualTransaction.json_file
+    #         )
+    #         .filter(
+    #             ManualTransaction.reconciled_status == "PENDING",
+    #             ManualTransaction.created_by == username
+    #         )
+    #         .all()
+    #     )
+    #     return [{"manual_txn_id": r.manual_txn_id,"channel_id": r.channel_id,"source_id": r.source_id, "json_file": r.json_file} for r in results]
+
+    # @staticmethod
+    # def get_all_json(
+    #     db: Session,
+    #     # user_id: int
+    # ):
+    #     results = (
+    #         db.query(
+    #             ManualTransaction.manual_txn_id,
+    #             ManualTransaction.channel_id,
+    #             ChannelConfig.channel_name,
+    #             ChannelConfig.channel_source_id,
+    #             SourceConfig.source_name,
+    #             ManualTransaction.json_file
+    #         )
+    #         .join(
+    #             ChannelConfig,
+    #             ChannelConfig.id == ManualTransaction.channel_id
+    #         )
+    #         .join(
+    #             SourceConfig,
+    #             SourceConfig.id == ChannelConfig.channel_source_id
+    #         )
+    #         .filter(
+    #             ManualTransaction.reconciled_status == False,
+    #             # ManualTransaction.created_by == user_id
+    #         )
+    #         .all()
+    #     )
+
+    #     return [
+    #         {
+    #             "manual_txn_id": r.manual_txn_id,
+    #             "channel_id": r.channel_id,
+    #             "channel_name": r.channel_name,
+    #             "source_id": r.channel_source_id,  
+    #             "source_name": r.source_name,
+    #             "json_file": r.json_file
+    #         }
+    #         for r in results
+    #     ]
+
     @staticmethod
-    def get_all_json(
-        db: Session,
-        username: str
-    ):
-        results = (
-            db.query(
+    async def get_all_json(db):
+        stmt = (
+            select(
                 ManualTransaction.manual_txn_id,
                 ManualTransaction.channel_id,
+                ChannelConfig.channel_name,
                 ManualTransaction.source_id,
+                SourceConfig.source_name,
                 ManualTransaction.json_file
             )
-            .filter(
-                ManualTransaction.reconciled_status == "PENDING",
-                ManualTransaction.created_by == username
+            .join(
+                ChannelConfig,
+                ChannelConfig.id == ManualTransaction.channel_id
             )
-            .all()
+            .join(
+                SourceConfig,
+                SourceConfig.id == ManualTransaction.source_id
+            )
+            .where(
+                ManualTransaction.reconciled_status == False
+            )
         )
-        return [{"manual_txn_id": r.manual_txn_id,"channel_id": r.channel_id,"source_id": r.source_id, "json_file": r.json_file} for r in results]
 
+        result = await db.execute(stmt)
+        rows = result.all()
 
+        return [
+            {
+                "manual_txn_id": r.manual_txn_id,
+                "channel_id": r.channel_name,
+                # "channel_name": r.channel_name,
+                "source_id": r.source_name,
+                # "source_name": r.source_name,
+                "json_file": r.json_file
+            }
+            for r in rows
+        ]

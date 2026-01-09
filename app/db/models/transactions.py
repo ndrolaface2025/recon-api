@@ -6,6 +6,7 @@ class Transaction(Base):
     __tablename__ = "tbl_txn_transactions"
 
     id = Column(BigInteger, primary_key=True)
+    txn_id = Column(String(50), index=True)
     recon_reference_number = Column(String(255), nullable=True)
     channel_id = Column(BigInteger, ForeignKey("tbl_cfg_channels.id"), nullable=True)
     source_id = Column(BigInteger, ForeignKey("tbl_cfg_source.id"), nullable=True)
@@ -15,7 +16,7 @@ class Transaction(Base):
     date = Column(String(50), nullable=True)
     account_number = Column(String(50), nullable=True)
     ccy = Column(String(10), nullable=True)
-    otherDetails = Column(Text, nullable=True)
+    other_details = Column(Text, nullable=True)
     file_transactions_id = Column(BigInteger, ForeignKey("tbl_upload_files.id"), nullable=True)
     reconciled_status = Column(Boolean, nullable=True)
     reconciled_mode = Column(Boolean, nullable=True)

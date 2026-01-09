@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Body, Depends
 from sqlalchemy.orm import Session
-from app.services.services import get_service
+from app.db.session import get_db
 from app.services.manualTransactionService import ManualTransactionService
 from app.services.transactionService import TransactionService
 from fastapi import HTTPException
 
 router = APIRouter(prefix="/api/v1")
+
  
 # @router.patch("/manual-transactions")
 # async def patch_manual_transactions(
@@ -43,9 +44,9 @@ router = APIRouter(prefix="/api/v1")
 #         "recon_reference_number": recon_ref
 #     }
 @router.patch("/manual-transactions")
-def patch_manual_transactions(
+async def patch_manual_transactions(
     payload: dict = Body(...),
-    db: Session = Depends(get_service)
+    db: Session = Depends(get_db)
 ):
     manual_txn_ids = payload.pop("manual_txn_ids", None)
 
@@ -55,7 +56,7 @@ def patch_manual_transactions(
             detail="manual_txn_ids must be a non-empty list"
         )
 
-    manual_result = ManualTransactionService.patch(
+    manual_result = await ManualTransactionService.patch(
         db=db,
         manual_txn_ids=manual_txn_ids,
         payload=payload
@@ -70,7 +71,7 @@ def patch_manual_transactions(
             for txn in manual_result["transactions"]
         ]
 
-        TransactionService.patch(
+        await TransactionService.patch(
             db=db,
             txn_ids=txn_ids,
             recon_reference_number=recon_ref,
@@ -84,19 +85,24 @@ def patch_manual_transactions(
         "recon_reference_number": recon_ref
     }
 
+# @router.get("/manual-transactions")
+# def get_all_manual_transactions(
+#     db: Session = Depends(get_db)
+# ):
+#     return ManualTransactionService.get_all_json(
+#         db=db,
+#         username="Ackim"
+#     )
 @router.get("/manual-transactions")
-def get_all_manual_transactions(
-    db: Session = Depends(get_service)
+async def get_all_manual_transactions(
+    db = Depends(get_db)
 ):
-    return ManualTransactionService.get_all_json(
-        db=db,
-        username="Ackim"
-    )
+    return await ManualTransactionService.get_all_json(db)
 
 
 @router.post("/manual-transactions")
 async def create_manual_transaction(
     payload: dict = Body(...),
-    db: Session = Depends(get_service)
+    db: Session = Depends(get_db)
 ):
     return await ManualTransactionService.create_manual_transaction(db, payload)

@@ -5,8 +5,9 @@ from app.db.base import Base
 class TxnJournalEntry(Base):
     __tablename__ = "tbl_txn_journal_entries"
 
-    id = Column(BigInteger, primary_key=True, index=True)
-    recon_reference_number = Column(String(50))
+    # id = Column(BigInteger, primary_key=True, index=True)
+    id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
+    recon_reference_number = Column(String(255), nullable=True)
     account_brn = Column(String(20))
     account_number = Column(String(50))
     account_desc = Column(Text)

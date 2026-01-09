@@ -1,20 +1,20 @@
 from fastapi import APIRouter, Body, Depends
 from sqlalchemy.orm import Session
-from app.services.services import get_service
+from app.db.session import get_db
 from app.services.txnJournalEntryService import TxnJournalEntryService
 from app.services.transactionService import TransactionService
 from app.services.manualTransactionService import ManualTransactionService
 from typing import List
 from fastapi import HTTPException
 
-router = APIRouter()
+router = APIRouter(prefix="/api/v1")
 txnJournalEntryService = TxnJournalEntryService()
 
 
 @router.post("/journal-entries")
-def create_journal_entries(
+async def create_journal_entries(
     payload: dict = Body(...),
-    db: Session = Depends(get_service)
+    db = Depends(get_db) 
 ):
     manual_txn_ids = payload.get("manual_txn_ids")
     reconciled_status = payload.get("reconciled_status")
@@ -29,7 +29,7 @@ def create_journal_entries(
         recon_ref = None
 
         if manual_txn_ids and reconciled_status:
-            manual_result = ManualTransactionService.patch(
+            manual_result = await ManualTransactionService.patch(
                 db=db,
                 manual_txn_ids=manual_txn_ids,
                 payload={
@@ -44,7 +44,7 @@ def create_journal_entries(
         for txn in transactions:
             txn["recon_reference_number"] = recon_ref
 
-        journal_result = TxnJournalEntryService.create_many(
+        journal_result = await TxnJournalEntryService.create_many(
             db=db,
             payloads=transactions
         )
@@ -52,7 +52,7 @@ def create_journal_entries(
         if recon_ref and manual_result:
             txn_ids = [txn.manual_txn_id for txn in manual_result["transactions"]]
 
-            TransactionService.patch(
+            await TransactionService.patch(
                 db=db,
                 txn_ids=txn_ids,
                 recon_reference_number=recon_ref,
@@ -69,5 +69,5 @@ def create_journal_entries(
         }
 
     except Exception as e:
-        db.rollback()
+        await db.rollback()
         raise HTTPException(500, str(e))

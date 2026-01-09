@@ -19,12 +19,20 @@ def get_headers_hash(headers):
 def extract_features(df):
     headers = [c.lower() for c in df.columns]
 
+    # More specific ATM indicators
+    has_atm_indicators = int(any("atm" in h or "terminal" in h and ("id" in h or "location" in h) for h in headers))
+    has_transaction_type = int(any("transaction" in h and "type" in h or "transactiontype" in h for h in headers))
+    
+    # PAN should only count for CARD if it's not masked and in ATM context
+    # If we have ATM indicators + masked PAN, it's ATM not CARD
+    has_pure_pan = int(any("pan" in h and "mask" not in h for h in headers))
+    
     return {
         "column_count": len(headers),
         "has_rrn": int(any("rrn" in h for h in headers)),
-        "has_terminal": int(any("terminal" in h or "atm" in h for h in headers)),
+        "has_terminal": int(any("terminal" in h for h in headers)),
         "has_merchant": int(any("merchant" in h or "mid" in h for h in headers)),
-        "has_pan": int(any("pan" in h or "card" in h for h in headers)),
+        "has_pan": has_pure_pan,  # Only non-masked PAN
         "has_auth": int(any("auth" in h for h in headers)),
         "has_balance": int(any("balance" in h for h in headers)),
         # Detect debit/credit columns: full names OR abbreviations (DR/CR)
@@ -35,6 +43,9 @@ def extract_features(df):
         # Additional CBS indicators
         "has_posted": int(any("posted" in h or "status" in h for h in headers)),
         "has_account": int(any("account" in h for h in headers)),
+        # Enhanced ATM detection
+        "has_atm_indicators": has_atm_indicators,
+        "has_transaction_type": has_transaction_type,
     }
 
 # ---- TRAIN MODEL ON STARTUP ----
@@ -42,41 +53,46 @@ def extract_features(df):
 # - ATM: ATM operational logs with location/transaction type
 # - SWITCH: Raw switch messages with MTI/Direction (can be ATM/POS/CARDS channel)
 # - POS: POS transactions with merchant details
-# - CARD: Card network settlement files
+# - CARD: Card network settlement files (pure card data, no ATM context)
 # - BANK: Core banking system posted transactions with DR/CR columns
 training_data = pd.DataFrame([
-    # ATM operational files (customer-facing)
-    [10, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "ATM"],
-    [11, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, "ATM"],
+    # ATM operational files (customer-facing) - has terminal, RRN, auth, transaction type
+    # column_count, has_rrn, has_terminal, has_merchant, has_pan, has_auth, has_balance, has_debit_credit, 
+    # has_mti, has_direction, has_processing_code, has_posted, has_account, has_atm_indicators, has_transaction_type, label
+    [14, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, "ATM"],  # Your ATM file pattern
+    [10, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, "ATM"],
+    [11, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, "ATM"],
+    [12, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, "ATM"],
     
     # SWITCH files (raw switch messages) - ATM channel
-    [12, 1, 1, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, "SWITCH"],
-    [13, 1, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, "SWITCH"],
-    [14, 1, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, "SWITCH"],
+    [12, 1, 1, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 0, 0, "SWITCH"],
+    [13, 1, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, "SWITCH"],
+    [14, 1, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, "SWITCH"],
     
     # SWITCH files - POS channel (has merchant indicators)
-    [15, 1, 1, 1, 0, 1, 0, 0, 1, 1, 1, 0, 0, "SWITCH"],
-    [16, 1, 0, 1, 0, 1, 0, 0, 1, 1, 0, 0, 0, "SWITCH"],
+    [15, 1, 1, 1, 0, 1, 0, 0, 1, 1, 1, 0, 0, 0, 0, "SWITCH"],
+    [16, 1, 0, 1, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, "SWITCH"],
     
-    # POS transaction files (not switch)
-    [12, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, "POS"],
-    [13, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, "POS"],
-    [11, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, "POS"],  # Merchant + Terminal, minimal other fields
+    # POS transaction files (not switch) - merchant focused
+    [12, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, "POS"],
+    [13, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, "POS"],
+    [11, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "POS"],
     
-    # CARD network files
-    [20, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, "CARD"],
-    [18, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, "CARD"],
+    # CARD network files - pure card data, NO ATM indicators
+    [20, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, "CARD"],
+    [18, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "CARD"],
+    [15, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, "CARD"],
     
     # BANK/CBS posted transactions (with DR/CR columns)
-    [8, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, "BANK"],
-    [10, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, "BANK"],
-    [10, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, "BANK"],  # DR/CR but no balance column
-    [12, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, "BANK"],  # With RRN (reference)
+    [8, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, "BANK"],
+    [10, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, "BANK"],
+    [10, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, "BANK"],
+    [12, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, "BANK"],
 ], columns=[
     "column_count", "has_rrn", "has_terminal", "has_merchant",
     "has_pan", "has_auth", "has_balance", "has_debit_credit",
     "has_mti", "has_direction", "has_processing_code",
-    "has_posted", "has_account", "label"
+    "has_posted", "has_account", "has_atm_indicators", "has_transaction_type", "label"
 ])
 
 X = training_data.drop("label", axis=1)

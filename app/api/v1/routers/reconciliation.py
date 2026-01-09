@@ -144,7 +144,7 @@ async def detect_source(file: UploadFile = File(...), db: AsyncSession = Depends
                     "channel_name": channel.channel_name,
                     "channel_description": channel.channel_description,
                     "status": channel.status,
-                    "cannel_source_id": channel.cannel_source_id,
+                    "channel_source_id": channel.channel_source_id,
                     "network_source_id": channel.network_source_id,
                     "cbs_source_id": channel.cbs_source_id,
                     "switch_source_id": channel.switch_source_id
@@ -157,46 +157,80 @@ async def detect_source(file: UploadFile = File(...), db: AsyncSession = Depends
             print(f"Fetching source details for: {recommended_source_type}")
             
             # Map ML predictions to actual database source names
+            # Each channel can have different sources (CBS, NETWORK, SWITCH, SETTLEMENT, etc.)
+            # ATM channel: ATM source (EJ logs, operational)
+            # CARDS channel: NETWORK source (card network files)
+            # POS channel: SWITCH/SETTLEMENT source
+            # SWITCH prediction: Could be ATM/POS/CARDS - use channel_source_id from channel
+            # BANK prediction: CBS source
+            
+            # For ATM files, we want ATM source
+            # For CARD files, we want NETWORK source  
+            # For SWITCH files, we need to check which channel and use appropriate source
             source_name_mapping = {
-                "POS": "SWITCH",  # POS ML prediction -> SWITCH source in DB
-                "CARD": "SWITCH",
-                "CARDS": "SWITCH",
-                "ATM": "ATM",
-                "BANK": "CBS"
+                "ATM": "ATM",         # ATM -> ATM source
+                "BANK": "CBS",        # BANK -> CBS source
+                "CARD": "NETWORK",    # CARD -> NETWORK source (card network files)
+                "CARDS": "NETWORK",   # CARDS -> NETWORK source
+                "POS": "SWITCH",      # POS -> SWITCH source
+                "SWITCH": None,       # SWITCH -> determine from channel
             }
             
             # Get the database source name
             db_source_name = source_name_mapping.get(recommended_source_type, recommended_source_type)
             
-            # Try different variations of source name
-            source_name_variations = [
-                db_source_name,
-                recommended_source_type,
-                recommended_source_type.replace("_FILE", ""),
-                recommended_source_type.replace("_", " "),
-                recommended_source_type.split("_")[0]  # Get first part (ATM, SWITCH, etc.)
-            ]
+            # For SWITCH predictions, use the channel_source_id from the detected channel
+            if recommended_source_type == "SWITCH" and channel_details:
+                # Get the primary source for this channel
+                primary_source_id = channel_details.get("channel_source_id")
+                if primary_source_id:
+                    print(f"SWITCH detected, using channel's primary source ID: {primary_source_id}")
+                    source_query = select(SourceConfig).where(
+                        SourceConfig.id == primary_source_id,
+                        SourceConfig.status == 1
+                    )
+                    source_result_db = await db.execute(source_query)
+                    source = source_result_db.scalar_one_or_none()
+                    
+                    if source:
+                        source_details = {
+                            "id": source.id,
+                            "source_name": source.source_name,
+                            "source_type": source.source_type,
+                            "status": source.status
+                        }
             
-            print(f"Source name variations to try: {source_name_variations}")
-            
-            for source_name_var in source_name_variations:
-                source_query = select(SourceConfig).where(
-                    SourceConfig.source_name.ilike(f"%{source_name_var}%"),
-                    SourceConfig.status == 1
-                )
-                source_result_db = await db.execute(source_query)
-                source = source_result_db.scalar_one_or_none()
+            # If not SWITCH or no source found yet, try name-based matching
+            if not source_details and db_source_name:
+                # Try different variations of source name
+                source_name_variations = [
+                    db_source_name,
+                    recommended_source_type,
+                    recommended_source_type.replace("_FILE", ""),
+                    recommended_source_type.replace("_", " "),
+                    recommended_source_type.split("_")[0]  # Get first part (ATM, SWITCH, etc.)
+                ]
                 
-                print(f"Trying source variation '{source_name_var}': {source}")
+                print(f"Source name variations to try: {source_name_variations}")
                 
-                if source:
-                    source_details = {
-                        "id": source.id,
-                        "source_name": source.source_name,
-                        "source_type": source.source_type,
-                        "status": source.status
-                    }
-                    break
+                for source_name_var in source_name_variations:
+                    source_query = select(SourceConfig).where(
+                        SourceConfig.source_name.ilike(f"%{source_name_var}%"),
+                        SourceConfig.status == 1
+                    )
+                    source_result_db = await db.execute(source_query)
+                    source = source_result_db.scalar_one_or_none()
+                    
+                    print(f"Trying source variation '{source_name_var}': {source}")
+                    
+                    if source:
+                        source_details = {
+                            "id": source.id,
+                            "source_name": source.source_name,
+                            "source_type": source.source_type,
+                            "status": source.status
+                        }
+                        break
         
         # Get column mapping based on actual CSV columns
         column_mapping_dict = auto_map_columns(file_columns)

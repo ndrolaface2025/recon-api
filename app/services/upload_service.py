@@ -99,39 +99,24 @@ class UploadService:
             getAmountColumnName = self.get_mapped_to_by_channel_column(required_mappings, "amount")
             getAcountNumberColumnName = self.get_mapped_to_by_channel_column(required_mappings, "account_number")
             getCurrencyColumnName = self.get_mapped_to_by_channel_column(required_mappings, "currency")
-            if total_records <= 500:
-                savefiledata = await UploadRepository.saveFileDetails(
-                    self.db, 
-                    fileData, 
-                    fileJson,
-                    getDateTimeColumnName,
-                    getAmountColumnName,
-                    getAcountNumberColumnName,
-                    getCurrencyColumnName
-                )
-                return {
-                    "status": "success",
-                    "errors": False,
-                    "message": "File uploaded successfully",
-                    "data": savefiledata
+            
+            # Always process files with Celery jobs (no direct upload)
+            # This ensures consistent processing, better tracking, and scalability
+            result = await self.uploadWithCelery(
+                file=file,
+                file_id=fileSaveDetail.get("insertedId"),
+                total_records=total_records,
+                channel_id=channel_id,
+                source_id=source_id,
+                user_detail=userDetail,
+                column_mappings={
+                    "date": getDateTimeColumnName,
+                    "amount": getAmountColumnName,
+                    "account_number": getAcountNumberColumnName,
+                    "currency": getCurrencyColumnName
                 }
-            else:
-                # Process large files with Celery and chunked processing
-                result = await self.uploadWithCelery(
-                    file=file,
-                    file_id=fileSaveDetail.get("insertedId"),
-                    total_records=total_records,
-                    channel_id=channel_id,
-                    source_id=source_id,
-                    user_detail=userDetail,
-                    column_mappings={
-                        "date": getDateTimeColumnName,
-                        "amount": getAmountColumnName,
-                        "account_number": getAcountNumberColumnName,
-                        "currency": getCurrencyColumnName
-                    }
-                )
-                return result
+            )
+            return result
 
         except HTTPException:
             raise
@@ -169,9 +154,20 @@ class UploadService:
         - 1M records: 200 batches instead of 100,000
         """
         try:
+            # Fetch record_per_job from tbl_cfg_system_batch (default: 20 if not configured)
+            batch_config_service = BatchConfigService(self.db)
+            batch_config = await batch_config_service.getBatchConfiguration(system_id=1)
+            
+            # Extract record_per_job from response, default to 20 if not found
+            record_per_job = 20  # Default fallback
+            if batch_config and batch_config.get("data"):
+                record_per_job = batch_config["data"].record_per_job or 20
+            
+            print(f"Using record_per_job from database: {record_per_job}")
+            
             # OPTIMIZED BATCH SIZE: 5000 instead of 10
             # Dynamic sizing: smaller files get smaller batches for faster response
-            batch_size = min(5000, max(1000, total_records // 20))
+            batch_size = min(5000, max(1000, total_records // record_per_job))
             print(f"Using optimized batch size: {batch_size}")
             
             # Calculate number of batches

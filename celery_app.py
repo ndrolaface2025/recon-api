@@ -1,11 +1,7 @@
 # celery_app.py
 from celery import Celery, signals
 import logging
-import os
-from dotenv import load_dotenv
-
-# Load environment variables
-load_dotenv()
+from app.config import settings
 
 # Configure logging BEFORE creating Celery app
 logging.basicConfig(
@@ -14,30 +10,18 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 
-# Get Celery configuration from environment
-CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
-CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
-
-# Create Celery instance
+# Create Celery instance using settings from config
 celery_app = Celery(
     "recon_workers",
-    broker=CELERY_BROKER_URL,
-    backend=CELERY_RESULT_BACKEND,
+    broker=settings.CELERY_BROKER_URL,
+    backend=settings.CELERY_RESULT_BACKEND,
 )
 
-# Celery Configuration
+# Configure Celery
 celery_app.conf.update(
-    task_track_started=True,
-    task_time_limit=int(os.getenv("CELERY_TASK_TIME_LIMIT", 1800)),  # 30 minutes
-    task_soft_time_limit=int(os.getenv("CELERY_TASK_SOFT_TIME_LIMIT", 1500)),  # 25 minutes
-    worker_prefetch_multiplier=1,  # Fetch one task at a time
-    worker_max_tasks_per_child=1000,  # Restart worker after 1000 tasks (prevent memory leaks)
-    result_expires=3600,  # Results expire after 1 hour
-    task_serializer='json',
-    result_serializer='json',
-    accept_content=['json'],
-    timezone='UTC',
-    enable_utc=True,
+    task_track_started=settings.CELERY_TASK_TRACK_STARTED,
+    task_time_limit=settings.CELERY_TASK_TIME_LIMIT,
+    task_soft_time_limit=settings.CELERY_TASK_SOFT_TIME_LIMIT,
 )
 
 # Use default 'celery' queue (no custom routing needed)

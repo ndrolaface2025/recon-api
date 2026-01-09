@@ -17,3 +17,17 @@ class ChannelConfig(Base):
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=True)
     updated_by = Column(BigInteger, ForeignKey("tbl_cfg_users.id"), nullable=True)
     version_number = Column(Integer, nullable=True)
+    
+    def __repr__(self):
+        return (
+            f"ChannelConfig(id={self.id}, "
+            f"channel_name='{self.channel_name}', "
+            f"channel_source_id={self.channel_source_id}, "
+            f"network_source_id={self.network_source_id}, "
+            f"cbs_source_id={self.cbs_source_id}, "
+            f"switch_source_id={self.switch_source_id}, "
+            f"status={self.status})"
+        )
+    
+    def __str__(self):
+        return f"Channel: {self.channel_name} (ID: {self.id})"

@@ -5,10 +5,7 @@ from app.services.manualTransactionService import ManualTransactionService
 from app.services.transactionService import TransactionService
 from fastapi import HTTPException
 
-router = APIRouter()
-manualTransactionService = ManualTransactionService()
-transactionService = TransactionService()
-
+router = APIRouter(prefix="/api/v1")
  
 # @router.patch("/manual-transactions")
 # async def patch_manual_transactions(
@@ -88,10 +85,13 @@ def patch_manual_transactions(
     }
 
 @router.get("/manual-transactions")
-async def get_all_manual_transactions(
+def get_all_manual_transactions(
     db: Session = Depends(get_service)
 ):
-    return await manualTransactionService.get_all_manual_transactions(db)
+    return ManualTransactionService.get_all_json(
+        db=db,
+        username="Ackim"
+    )
 
 
 @router.post("/manual-transactions")
@@ -99,4 +99,4 @@ async def create_manual_transaction(
     payload: dict = Body(...),
     db: Session = Depends(get_service)
 ):
-    return await manualTransactionService.create_manual_transaction(db, payload)
+    return await ManualTransactionService.create_manual_transaction(db, payload)

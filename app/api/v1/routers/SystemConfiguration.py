@@ -1,7 +1,8 @@
 from typing import Any
 from fastapi import APIRouter, Query
 from fastapi.params import Depends
-from fastapi.temp_pydantic_v1_params import Body
+# from fastapi.temp_pydantic_v1_params import Body
+from fastapi import Body
 
 from app.services.batch_config_service import BatchConfigService
 from app.services.services import get_service

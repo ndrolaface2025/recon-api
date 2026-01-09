@@ -12,4 +12,14 @@ class SourceConfig(Base):
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=True)
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=True)
     version_number = Column(Integer, nullable=True)
-
+    
+    def __repr__(self):
+        return (
+            f"SourceConfig(id={self.id}, "
+            f"source_name='{self.source_name}', "
+            f"source_type={self.source_type}, "
+            f"status={self.status})"
+        )
+    
+    def __str__(self):
+        return f"Source: {self.source_name} (ID: {self.id}, Type: {self.source_type})"

@@ -54,44 +54,89 @@ async def detect_source(file: UploadFile = File(...), db: AsyncSession = Depends
         # Get the detected channel from LLM (if available)
         # Check both top level and raw object
         llm_prediction = source_result.get("llm_prediction", {})
-        llm_detected_channel = llm_prediction.get("channel", "UNKNOWN")
+        llm_detected_channel = llm_prediction.get("channel", "UNKNOWN") if llm_prediction else "UNKNOWN"
         
         # If not at top level, check in raw object
-        if llm_detected_channel == "UNKNOWN":
+        if llm_detected_channel == "UNKNOWN" and llm_prediction:
             llm_detected_channel = llm_prediction.get("raw", {}).get("channel", "UNKNOWN")
         
-        # Map source type to channel ID
-        # ATM_FILE -> Channel 1 (ATM)
-        # SWITCH_FILE -> Use LLM detected channel
-        # CBS_BANK_FILE -> Bank/CBS
-        channel_mapping = {
-            "ATM_FILE": 1,
-            "ATM": 1,
-            "POS": 2,
-            "CARD": 3,
-            "CARDS": 3,
-            "CARD_NETWORK_FILE": 3,
-            "SWITCH_FILE": 1,  # Will be determined by LLM channel
-            "CBS_BANK_FILE": 1,  # CBS can be part of any channel
-            "BANK": 1
+        # If LLM channel is still UNKNOWN, infer from ML prediction
+        if llm_detected_channel == "UNKNOWN":
+            ml_prediction = source_result.get("ml_prediction", {})
+            ml_source = ml_prediction.get("source", "UNKNOWN")
+            
+            # Map ML source to channel
+            ml_to_channel = {
+                "ATM": "ATM",
+                "POS": "POS", 
+                "CARD": "CARDS",
+                "CARDS": "CARDS",
+                "BANK": "ATM"  # Default bank to ATM
+            }
+            llm_detected_channel = ml_to_channel.get(ml_source, "UNKNOWN")
+            print(f"LLM channel was UNKNOWN, inferred from ML: {ml_source} -> {llm_detected_channel}")
+        
+        # Dynamically fetch channel IDs from database by name
+        # This avoids hardcoding and adapts to database changes
+        print(f"Recommended source type: {recommended_source_type}")
+        print(f"LLM detected channel: {llm_detected_channel}")
+        
+        # Map source types to channel names (not IDs)
+        source_to_channel_name = {
+            "ATM_FILE": "ATM",
+            "ATM": "ATM",
+            "POS": "POS",
+            "CARD": "CARDS",
+            "CARDS": "CARDS",
+            "CARD_NETWORK_FILE": "CARDS",
+            "SWITCH_FILE": llm_detected_channel,  # Use LLM detected channel
+            "CBS_BANK_FILE": "ATM",  # Default to ATM
+            "BANK": "ATM"
         }
         
-        # Determine channel ID
-        detected_channel_id = channel_mapping.get(recommended_source_type)
+        # Get channel name to look up
+        channel_name_to_find = source_to_channel_name.get(recommended_source_type, llm_detected_channel)
         
-        # If source type doesn't map directly (like SWITCH_FILE), use LLM detected channel
-        if detected_channel_id is None and llm_detected_channel != "UNKNOWN":
-            detected_channel_id = channel_mapping.get(llm_detected_channel)
+        print(f"Looking for channel name: {channel_name_to_find}")
+        
+        # Query database for channel by name
+        detected_channel_id = None
+        if channel_name_to_find and channel_name_to_find != "UNKNOWN":
+            channel_by_name_query = select(ChannelConfig).where(
+                ChannelConfig.channel_name.ilike(f"%{channel_name_to_find}%")
+            )
+            channel_by_name_result = await db.execute(channel_by_name_query)
+            found_channel = channel_by_name_result.scalar_one_or_none()
+            
+            if found_channel:
+                detected_channel_id = found_channel.id
+                print(f"Found channel '{found_channel.channel_name}' with ID: {detected_channel_id}")
+            else:
+                print(f"Channel '{channel_name_to_find}' not found in database")
+                # Fallback: try to find ATM channel as default
+                fallback_query = select(ChannelConfig).where(
+                    ChannelConfig.channel_name.ilike("%ATM%")
+                )
+                fallback_result = await db.execute(fallback_query)
+                fallback_channel = fallback_result.scalar_one_or_none()
+                if fallback_channel:
+                    detected_channel_id = fallback_channel.id
+                    print(f"Using fallback channel 'ATM' with ID: {detected_channel_id}")
+        
+        print(f"Final detected channel ID: {detected_channel_id}")
         
         # Fetch detected channel details
         channel_details = None
         if detected_channel_id:
+            print(f"Fetching channel details for ID: {detected_channel_id}")
+            # Don't filter by status=True since some channels have status=None
             channel_query = select(ChannelConfig).where(
-                ChannelConfig.id == detected_channel_id,
-                ChannelConfig.status == True
+                ChannelConfig.id == detected_channel_id
             )
             channel_result = await db.execute(channel_query)
             channel = channel_result.scalar_one_or_none()
+            
+            print(f"Channel query result: {channel}")
             
             if channel:
                 channel_details = {
@@ -99,7 +144,7 @@ async def detect_source(file: UploadFile = File(...), db: AsyncSession = Depends
                     "channel_name": channel.channel_name,
                     "channel_description": channel.channel_description,
                     "status": channel.status,
-                    "cannel_source_id": channel.cannel_source_id,
+                    "channel_source_id": channel.channel_source_id,
                     "network_source_id": channel.network_source_id,
                     "cbs_source_id": channel.cbs_source_id,
                     "switch_source_id": channel.switch_source_id
@@ -109,30 +154,83 @@ async def detect_source(file: UploadFile = File(...), db: AsyncSession = Depends
         # Try to find source by name matching the detected type
         source_details = None
         if recommended_source_type:
-            # Try different variations of source name
-            source_name_variations = [
-                recommended_source_type,
-                recommended_source_type.replace("_FILE", ""),
-                recommended_source_type.replace("_", " "),
-                recommended_source_type.split("_")[0]  # Get first part (ATM, SWITCH, etc.)
-            ]
+            print(f"Fetching source details for: {recommended_source_type}")
             
-            for source_name_var in source_name_variations:
-                source_query = select(SourceConfig).where(
-                    SourceConfig.source_name.ilike(f"%{source_name_var}%"),
-                    SourceConfig.status == 1
-                )
-                source_result_db = await db.execute(source_query)
-                source = source_result_db.scalar_one_or_none()
+            # Map ML predictions to actual database source names
+            # Each channel can have different sources (CBS, NETWORK, SWITCH, SETTLEMENT, etc.)
+            # ATM channel: ATM source (EJ logs, operational)
+            # CARDS channel: NETWORK source (card network files)
+            # POS channel: SWITCH/SETTLEMENT source
+            # SWITCH prediction: Could be ATM/POS/CARDS - use channel_source_id from channel
+            # BANK prediction: CBS source
+            
+            # For ATM files, we want ATM source
+            # For CARD files, we want NETWORK source  
+            # For SWITCH files, we need to check which channel and use appropriate source
+            source_name_mapping = {
+                "ATM": "ATM",         # ATM -> ATM source
+                "BANK": "CBS",        # BANK -> CBS source
+                "CARD": "NETWORK",    # CARD -> NETWORK source (card network files)
+                "CARDS": "NETWORK",   # CARDS -> NETWORK source
+                "POS": "SWITCH",      # POS -> SWITCH source
+                "SWITCH": None,       # SWITCH -> determine from channel
+            }
+            
+            # Get the database source name
+            db_source_name = source_name_mapping.get(recommended_source_type, recommended_source_type)
+            
+            # For SWITCH predictions, use the channel_source_id from the detected channel
+            if recommended_source_type == "SWITCH" and channel_details:
+                # Get the primary source for this channel
+                primary_source_id = channel_details.get("channel_source_id")
+                if primary_source_id:
+                    print(f"SWITCH detected, using channel's primary source ID: {primary_source_id}")
+                    source_query = select(SourceConfig).where(
+                        SourceConfig.id == primary_source_id,
+                        SourceConfig.status == 1
+                    )
+                    source_result_db = await db.execute(source_query)
+                    source = source_result_db.scalar_one_or_none()
+                    
+                    if source:
+                        source_details = {
+                            "id": source.id,
+                            "source_name": source.source_name,
+                            "source_type": source.source_type,
+                            "status": source.status
+                        }
+            
+            # If not SWITCH or no source found yet, try name-based matching
+            if not source_details and db_source_name:
+                # Try different variations of source name
+                source_name_variations = [
+                    db_source_name,
+                    recommended_source_type,
+                    recommended_source_type.replace("_FILE", ""),
+                    recommended_source_type.replace("_", " "),
+                    recommended_source_type.split("_")[0]  # Get first part (ATM, SWITCH, etc.)
+                ]
                 
-                if source:
-                    source_details = {
-                        "id": source.id,
-                        "source_name": source.source_name,
-                        "source_type": source.source_type,
-                        "status": source.status
-                    }
-                    break
+                print(f"Source name variations to try: {source_name_variations}")
+                
+                for source_name_var in source_name_variations:
+                    source_query = select(SourceConfig).where(
+                        SourceConfig.source_name.ilike(f"%{source_name_var}%"),
+                        SourceConfig.status == 1
+                    )
+                    source_result_db = await db.execute(source_query)
+                    source = source_result_db.scalar_one_or_none()
+                    
+                    print(f"Trying source variation '{source_name_var}': {source}")
+                    
+                    if source:
+                        source_details = {
+                            "id": source.id,
+                            "source_name": source.source_name,
+                            "source_type": source.source_type,
+                            "status": source.status
+                        }
+                        break
         
         # Get column mapping based on actual CSV columns
         column_mapping_dict = auto_map_columns(file_columns)

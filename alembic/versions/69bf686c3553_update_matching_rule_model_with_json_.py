@@ -30,7 +30,7 @@ def upgrade() -> None:
         ALTER TABLE tbl_cfg_matching_rule 
         ALTER COLUMN conditions TYPE JSON 
         USING CASE 
-            WHEN conditions IS NULL OR conditions = '' THEN NULL
+            WHEN conditions IS NULL OR conditions::text = '' THEN NULL
             ELSE conditions::json
         END
     """)
@@ -40,9 +40,28 @@ def upgrade() -> None:
         ALTER TABLE tbl_cfg_matching_rule 
         ALTER COLUMN tolerance TYPE JSON 
         USING CASE 
-            WHEN tolerance IS NULL OR tolerance = '' THEN NULL
+            WHEN tolerance IS NULL OR tolerance::text = '' THEN NULL
             ELSE tolerance::json
         END
+    """)
+    
+    # Fill NULL values before making columns NOT NULL
+    op.execute("""
+        UPDATE tbl_cfg_matching_rule
+        SET created_at = NOW()
+        WHERE created_at IS NULL
+    """)
+    
+    op.execute("""
+        UPDATE tbl_cfg_matching_rule
+        SET updated_at = NOW()
+        WHERE updated_at IS NULL
+    """)
+    
+    op.execute("""
+        UPDATE tbl_cfg_matching_rule
+        SET version_number = 1
+        WHERE version_number IS NULL
     """)
     
     op.alter_column('tbl_cfg_matching_rule', 'status',
@@ -57,9 +76,22 @@ def upgrade() -> None:
     op.alter_column('tbl_cfg_matching_rule', 'version_number',
                existing_type=sa.INTEGER(),
                nullable=False)
-    op.create_index(op.f('ix_tbl_cfg_matching_rule_channel_id'), 'tbl_cfg_matching_rule', ['channel_id'], unique=False)
-    op.create_index(op.f('ix_tbl_cfg_matching_rule_rule_name'), 'tbl_cfg_matching_rule', ['rule_name'], unique=False)
-    op.create_index(op.f('ix_tbl_cfg_matching_rule_status'), 'tbl_cfg_matching_rule', ['status'], unique=False)
+    
+    # Create indexes only if they don't exist
+    op.execute("""
+        CREATE INDEX IF NOT EXISTS ix_tbl_cfg_matching_rule_channel_id 
+        ON tbl_cfg_matching_rule (channel_id)
+    """)
+    
+    op.execute("""
+        CREATE INDEX IF NOT EXISTS ix_tbl_cfg_matching_rule_rule_name 
+        ON tbl_cfg_matching_rule (rule_name)
+    """)
+    
+    op.execute("""
+        CREATE INDEX IF NOT EXISTS ix_tbl_cfg_matching_rule_status 
+        ON tbl_cfg_matching_rule (status)
+    """)
     # ### end Alembic commands ###
 
 

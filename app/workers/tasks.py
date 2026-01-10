@@ -4,6 +4,24 @@ from app.engine.reconciliation_engine import ReconciliationEngine
 from app.db.session import AsyncSessionLocal
 from app.db.repositories.upload import UploadRepository
 
+import pandas as pd
+from app.services.data_normalize_service import ReconDataNormalizer
+
+SCHEMA_V1 = {
+    "datetime": "datetime",
+    "terminalid": "string",
+    "location": "string",
+    "pan_masked": "string",
+    "account_masked": "string",
+    "transactiontype": "string",
+    "currency": "string",
+    "amount": "float",
+    "rrn": "string",
+    "stan": "string",
+    "auth": "string",
+    "responsecode": "string",
+    "atm_index": "int",
+}
 # Global event loop for this worker process
 _worker_loop = None
 
@@ -69,10 +87,36 @@ def process_upload_batch(
                     if batch_number == 1:
                         await UploadRepository.updateFileStatus(db, file_id, status=1)
                     
+                    print(f"Normalized data for batch {batch_number}... with {len(batch_data)} records and data sample: {batch_data[0] if batch_data else 'No records'}")
+                    df = pd.DataFrame(batch_data)
+
+                    # df_normalized = (
+                    #     ReconDataNormalizer(df)
+                    #     .run_all(
+                    #         datetime_column=column_mappings.get("date"),
+                    #         amount_column=column_mappings.get("amount"),
+                    #         schema=SCHEMA_V1,
+                    #         tz="UTC"
+                    #     )
+                    # )
+
+                    df_normalized = (
+                        ReconDataNormalizer(df)
+                        .normalize_columns()
+                        .sanitize_strings()
+                        .normalize_datetime("datetime")
+                        .clean_amount("amount")
+                        .get_df()
+                    )
+
+                    normalized_batch_data = df_normalized.to_dict(orient="records")
+
+                    print(f"Normalized batch {batch_number}, first record: {normalized_batch_data[0] if normalized_batch_data else 'No records'}")
+                    
                     # Process the batch with bulk duplicate detection
                     result = await UploadRepository.saveFileDetailsBatch(
                         db=db,
-                        fileData=batch_data,
+                        fileData=normalized_batch_data,
                         fileJson=file_json,
                         column_mappings=column_mappings
                     )

@@ -1,4 +1,5 @@
 from sqlalchemy import Column, BigInteger, Integer, String, ForeignKey, Text, TIMESTAMP, func, JSON
+from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.db.base import Base
 
@@ -18,3 +19,6 @@ class MatchingRuleConfig(Base):
     updated_at = Column(TIMESTAMP, nullable=True, default=datetime.utcnow, server_default=func.now(), onupdate=func.now())
     updated_by = Column(BigInteger, ForeignKey("tbl_cfg_users.id"), nullable=True)
     version_number = Column(Integer, nullable=False, default=1)
+    
+    # Relationship to channel
+    channel = relationship("ChannelConfig", foreign_keys=[channel_id], lazy="joined")

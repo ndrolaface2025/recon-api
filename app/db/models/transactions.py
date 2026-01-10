@@ -1,5 +1,4 @@
-from sqlalchemy import Column, BigInteger, String, Boolean, Integer, Numeric, Text, TIMESTAMP, func, Date, ForeignKey
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Column, BigInteger, String, Boolean, Integer, ForeignKey, Text, TIMESTAMP, func
 from app.db.base import Base
 
 class Transaction(Base):
@@ -16,7 +15,7 @@ class Transaction(Base):
     date = Column(String(50), nullable=True)
     account_number = Column(String(50), nullable=True)
     ccy = Column(String(10), nullable=True)
-    other_details = Column(Text, nullable=True)
+    otherDetails = Column(Text, nullable=True)
     file_transactions_id = Column(BigInteger, ForeignKey("tbl_upload_files.id"), nullable=True)
     reconciled_status = Column(Boolean, nullable=True)
     reconciled_mode = Column(Boolean, nullable=True)

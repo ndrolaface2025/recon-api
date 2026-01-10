@@ -12,23 +12,37 @@ from sqlalchemy import select
 
 class ManualTransactionService:
 
+    # @staticmethod
+    # async def create(db: Session, payload: dict):
+    #     stmt = insert(ManualTransaction).values(**payload)
+
+    #     # block insert ONLY when both fields match
+    #     stmt = stmt.on_conflict_do_nothing(
+    #         constraint="uq_recon_rrn_source_ref"
+    #     )
+
+    #     result = await db.execute(stmt)
+    #     db.commit()
+
+    #     # return existing or newly inserted row
+    #     return db.query(ManualTransaction).filter(
+    #         ManualTransaction.recon_reference_number == payload["recon_reference_number"],
+    #         ManualTransaction.source_reference_number == payload["source_reference_number"]
+    #     ).first()
     @staticmethod
-    async def create(db: Session, payload: dict):
-        stmt = insert(ManualTransaction).values(**payload)
+    async def create_many(db, payloads: list[dict], model):
+        if not payloads:
+            return {"message": "No records", "count": 0}
 
-        # block insert ONLY when both fields match
-        stmt = stmt.on_conflict_do_nothing(
-            constraint="uq_recon_rrn_source_ref"
-        )
+        records = [model(**data) for data in payloads]
 
-        result = await db.execute(stmt)
-        db.commit()
+        db.add_all(records)
+        await db.commit()
 
-        # return existing or newly inserted row
-        return db.query(ManualTransaction).filter(
-            ManualTransaction.recon_reference_number == payload["recon_reference_number"],
-            ManualTransaction.source_reference_number == payload["source_reference_number"]
-        ).first()
+        return {
+            "message": "Records created",
+            "count": len(records),
+        }
 
 
     # @staticmethod

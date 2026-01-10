@@ -64,7 +64,7 @@ async def patch_manual_transactions(
 
     recon_ref = manual_result["recon_reference_number"]
 
-    if payload.get("reconciled_status") == "MATCHED":
+    if payload.get("reconciled_status"):
 
         txn_ids = [
             txn.manual_txn_id  

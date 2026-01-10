@@ -8,9 +8,11 @@ from .matching_rules import router as matching_rules_router
 from .matching_execution import router as matching_execution_router
 from .transactions import router as transactions_router
 from .TxnJournalEntryRoute import router as txn_journal_router
+from .GeneralLedgerRoute import router as general_ledger_router
 
 all_routers = [
     # reconciliation_router,
+    general_ledger_router,
     txn_journal_router,
     manual_router,
     upload_router,

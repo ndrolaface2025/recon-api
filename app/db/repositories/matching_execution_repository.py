@@ -12,9 +12,12 @@ class MatchingExecutionRepository:
     """
     Repository for executing matching rules
     
-    Uses intelligent dispatcher to route rules to:
-    - Stored Procedure: Simple AND conditions (fast)
-    - Application Layer: Complex OR/parentheses (flexible)
+    Uses unified application layer to execute ALL matching rules:
+    - SIMPLE rules: Basic AND conditions
+    - COMPLEX rules: OR operators, nested groups, source-specific matching
+    
+    All rules are processed through the Python matching engine for consistency,
+    flexibility, and maintainability.
     """
 
     def __init__(self, db: AsyncSession):
@@ -29,27 +32,26 @@ class MatchingExecutionRepository:
         min_sources: Optional[int] = None
     ) -> Dict[str, Any]:
         """
-        Execute matching rule via intelligent dispatcher
+        Execute matching rule via unified application layer
         
-        The dispatcher analyzes rule complexity and routes to:
-        - Stored Procedure (Database): Simple AND conditions
-        - Application Layer (Python): Complex OR/parentheses
+        All rules (SIMPLE and COMPLEX) are now processed through the Python
+        matching engine for consistency and flexibility.
         
         Args:
             rule_id: ID of the matching rule to execute
             channel_id: Optional channel ID filter
-            dry_run: If True, only returns generated SQL without execution
+            dry_run: If True, only returns analysis without execution
             min_sources: Minimum sources required (None=all sources, 2=partial 2 out of 3, etc.)
             
         Returns:
-            Dictionary containing execution results with dispatcher metadata:
+            Dictionary containing execution results:
             {
                 "rule_id": int,
                 "matched_count": int,
                 "transaction_ids": List[int],
                 "execution_time_ms": int,
                 "match_type": str,
-                "executor": "stored_procedure" | "application_layer",
+                "executor": "application_layer",
                 "complexity": "SIMPLE" | "COMPLEX"
             }
             

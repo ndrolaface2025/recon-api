@@ -1,8 +1,21 @@
 """
 Matching Rule Dispatcher
-Routes matching rules to appropriate execution engine:
-- Stored Procedure (Database Layer): Simple AND conditions
-- Application Layer (Python): Complex OR/parentheses conditions
+Routes all matching rules to the application layer (Python) execution engine.
+
+ARCHITECTURE CHANGE:
+- Previous: SIMPLE rules → Stored Procedure, COMPLEX rules → Application Layer
+- Current: ALL rules → Application Layer (unified approach)
+
+Benefits:
+- Consistency: All rules use the same execution path
+- Flexibility: Easier to add features and modify logic
+- Maintainability: Single codebase to maintain
+- Portability: No database-specific stored procedures needed
+
+The complexity analysis is still performed for:
+- Performance monitoring and optimization
+- Rule analysis and debugging
+- Future optimization opportunities
 """
 
 from typing import Dict, Any, Optional
@@ -80,24 +93,29 @@ class MatchingRuleDispatcher:
                 logger.info(f"Features detected: {strategy['features_detected']}")
             
             # Step 3: Route to appropriate executor
-            if complexity == RuleComplexity.SIMPLE:
-                result = await self._execute_via_stored_procedure(
-                    rule_id=rule_id,
-                    channel_id=channel_id,
-                    dry_run=dry_run,
-                    min_sources=min_sources
-                )
-                result["executor"] = "stored_procedure"
-            else:  # COMPLEX
-                result = await self._execute_via_application_layer(
-                    rule_id=rule_id,
-                    conditions=rule["conditions"],
-                    tolerance=rule["tolerance"],
-                    channel_id=channel_id,
-                    dry_run=dry_run,
-                    min_sources=min_sources
-                )
-                result["executor"] = "application_layer"
+            # NOTE: We now use application layer for ALL rules (SIMPLE and COMPLEX)
+            # This provides consistency and flexibility without needing stored procedures
+            # The complexity analysis is kept for informational purposes
+            
+            # Previous implementation used stored procedure for SIMPLE rules:
+            # if complexity == RuleComplexity.SIMPLE:
+            #     result = await self._execute_via_stored_procedure(...)
+            # else:
+            #     result = await self._execute_via_application_layer(...)
+            
+            # New unified approach - always use application layer
+            result = await self._execute_via_application_layer(
+                rule_id=rule_id,
+                conditions=rule["conditions"],
+                tolerance=rule["tolerance"],
+                channel_id=channel_id,
+                dry_run=dry_run,
+                min_sources=min_sources
+            )
+            result["executor"] = "application_layer"
+            
+            # Add complexity info for monitoring/optimization
+            result["complexity"] = complexity
             
             # Add analysis metadata
             result["complexity"] = complexity
@@ -281,7 +299,7 @@ class MatchingRuleDispatcher:
                 FROM tbl_txn_transactions t
                 JOIN tbl_cfg_source s ON t.source_id = s.id
                 WHERE s.source_name = :source_name
-                  AND s.channel_id = :channel_id
+                  AND t.channel_id = :channel_id
                   AND (t.match_status IS NULL OR t.match_status = 0)
             """
             

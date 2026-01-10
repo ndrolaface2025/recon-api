@@ -22,27 +22,33 @@ router = APIRouter(prefix="/matching-execution", tags=["Matching Execution"])
     status_code=status.HTTP_200_OK,
     summary="Execute matching rule",
     description="""
-    Execute a matching rule stored procedure to find and match transactions.
+    Execute a matching rule to find and match transactions.
+    
+    **Unified Application Layer:**
+    All rules (SIMPLE and COMPLEX) are processed through the Python matching engine
+    for consistency, flexibility, and maintainability.
     
     **Features:**
-    - Dynamically reads rule conditions from database
-    - Supports N-way matching (2, 3, or more sources)
-    - Applies tolerance for amount matching
-    - Updates matched transactions with match_status and reconciled_status
-    - Returns execution metrics
+    - N-way matching (2, 3, 4+ sources)
+    - AND/OR logic with proper precedence  
+    - Nested condition groups
+    - Source-specific matching
+    - Amount/time tolerance
+    - Full and partial matching
+    - Dry-run analysis
     
     **Process:**
     1. Fetches active matching rule from database
-    2. Extracts match conditions and sources
-    3. Dynamically builds SQL query
-    4. Executes matching logic
-    5. Updates matched transactions
-    6. Returns results with execution time
+    2. Analyzes rule complexity (informational)
+    3. Executes via application layer matching engine
+    4. Updates matched transactions with match_status and reconciled_status
+    5. Returns results with execution metrics
     
     **Parameters:**
     - `rule_id`: ID of the matching rule to execute (required)
     - `channel_id`: Optional channel filter
-    - `dry_run`: If true, shows generated SQL without executing
+    - `dry_run`: If true, analyzes without executing
+    - `min_sources`: Minimum sources for partial matching (None = all sources required)
     """,
     responses={
         200: {
@@ -54,7 +60,8 @@ router = APIRouter(prefix="/matching-execution", tags=["Matching Execution"])
                         "matched_count": 15,
                         "transaction_ids": [101, 102, 103, 201, 202, 203],
                         "execution_time_ms": 245,
-                        "message": "Successfully matched 15 transactions using rule 1"
+                        "match_type": "FULL",
+                        "message": "Successfully matched 15 transactions using rule 1 (FULL match)"
                     }
                 }
             }
@@ -153,16 +160,20 @@ async def execute_matching_rule(
     description="""
     Analyze a matching rule without executing it.
     
+    **Note**: All rules are now executed via application layer. This analysis
+    provides informational data for monitoring and optimization.
+    
     **Returns:**
     - Rule complexity (SIMPLE or COMPLEX)
-    - Execution strategy (stored_procedure or application_layer)
+    - Executor: "application_layer" (all rules)
     - Features detected (OR operators, nested groups, source-specific matching)
     - Transaction counts per source
     - Estimated execution time
     
     **Use Cases:**
-    - Before executing: understand which engine will process the rule
-    - Debugging: see why a rule is marked as complex
+    - Before executing: understand rule structure and complexity
+    - Monitoring: track rule performance characteristics
+    - Debugging: see why a rule is classified as complex
     - Optimization: estimate performance before execution
     """,
     responses={

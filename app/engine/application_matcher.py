@@ -1,7 +1,24 @@
 """
 Application Layer Matcher
-Handles complex matching rules with OR conditions and parentheses
-Processes transactions in Python when database stored procedure cannot handle the logic
+Handles ALL matching rules (SIMPLE and COMPLEX) in Python.
+
+This unified engine processes:
+- SIMPLE rules: Basic AND conditions, single-level matching
+- COMPLEX rules: OR operators, nested groups, source-specific conditions
+
+Features:
+- N-way matching (2, 3, 4+ sources)
+- AND/OR logic with proper precedence
+- Nested condition groups
+- Source-specific matching (e.g., amount only between ATM-SWITCH)
+- Amount/time tolerance
+- Full and partial matching
+- Dry-run analysis
+
+Performance:
+- Optimized for high-volume transaction matching
+- Efficient in-memory processing with indexes
+- Batch updates to minimize database round-trips
 """
 
 from typing import Dict, Any, List, Optional, Set, Tuple
@@ -713,8 +730,8 @@ class ApplicationMatcher:
                 UPDATE tbl_txn_transactions
                 SET 
                     match_status = :match_status,
-                    reconciled_status = 1,
-                    matched_rule_id = :rule_id,
+                    reconciled_status = TRUE,
+                    match_rule_id = :rule_id,
                     match_conditon = :match_condition,
                     updated_at = NOW()
                 WHERE id = ANY(:txn_ids)

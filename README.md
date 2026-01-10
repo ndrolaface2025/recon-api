@@ -121,7 +121,7 @@ Open a **NEW terminal window** and run:
 source venv/bin/activate  # macOS/Linux
 
 # Start Celery worker
-celery -A celery_app worker --loglevel=info --pool=solo
+celery -A app.celery_app worker --loglevel=info --pool=solo
 
 # Options:
 # --loglevel=info    : Show INFO level logs
@@ -134,13 +134,13 @@ celery -A celery_app worker --loglevel=info --pool=solo
 
 ```powershell
 # Windows requires 'solo' or 'gevent' pool
-celery -A celery_app worker --loglevel=info --pool=solo
+celery -A app.celery_app worker --loglevel=info --pool=solo
 ```
 
 **Production (Linux/macOS):**
 
 ```bash
-celery -A celery_app worker --loglevel=info --concurrency=4
+celery -A app.celery_app worker --loglevel=info --concurrency=4
 ```
 
 ### 4. Start Celery Flower (Optional Monitoring)
@@ -152,7 +152,7 @@ Open **another terminal** for monitoring:
 pip install flower
 
 # Start Flower dashboard
-celery -A celery_app flower --port=5555
+celery -A app.celery_app flower --port=5555
 
 
 

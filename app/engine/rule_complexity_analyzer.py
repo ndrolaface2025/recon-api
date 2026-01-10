@@ -1,8 +1,15 @@
 """
 Rule Complexity Analyzer
-Determines whether a matching rule should be executed in:
-- Database Layer (Stored Procedure) - for simple AND conditions
-- Application Layer (Python) - for complex OR/parentheses conditions
+Analyzes matching rule complexity for informational and monitoring purposes.
+
+NOTE: All rules (SIMPLE and COMPLEX) are now executed via the application layer
+for consistency and flexibility. The complexity classification is maintained for:
+- Performance monitoring
+- Rule optimization suggestions
+- Debugging and analysis
+
+Previously, SIMPLE rules used stored procedures and COMPLEX rules used Python.
+Now, the unified application layer handles both types efficiently.
 """
 
 from typing import Dict, Any, List, Optional
@@ -151,13 +158,16 @@ class RuleComplexityAnalyzer:
                 if RuleComplexityAnalyzer._has_source_specific_conditions(conditions_list):
                     features.append("source_specific_matching")
         
-        # Determine executor and reason
+        # NOTE: All rules now use application_layer for consistency
+        # Complexity classification is kept for informational/monitoring purposes
+        # Previous approach used stored procedure for SIMPLE rules
+        
         if complexity == RuleComplexity.SIMPLE:
-            executor = "stored_procedure"
-            reason = "Rule contains only simple AND conditions across all sources. Optimized for database-level execution."
+            executor = "application_layer"
+            reason = "Rule contains simple AND conditions. Executed via application layer for consistency and flexibility."
         else:
             executor = "application_layer"
-            reason = f"Rule contains complex logic ({', '.join(features)}). Requires application-layer processing."
+            reason = f"Rule contains complex logic ({', '.join(features)}). Executed via application layer."
         
         return {
             "complexity": complexity,

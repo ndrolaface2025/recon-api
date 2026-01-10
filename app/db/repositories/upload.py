@@ -24,6 +24,7 @@ class UploadRepository:
                 channel_id = fileData['channel_id'],
                 status=fileData['status'],
                 record_details= json.dumps(fileData['record_details']),
+                total_records=fileData['total_records'],
                 version_number=fileData['version_number'],
                 created_by=fileData['created_by']
             )
@@ -353,7 +354,6 @@ class UploadRepository:
             stmt = select(UploadFile).where(UploadFile.id == file_id)
             result = await db.execute(stmt)
             upload_file = result.scalar_one_or_none()
-            
             if not upload_file:
                 return {"error": True, "message": "File not found"}
             
@@ -378,47 +378,6 @@ class UploadRepository:
             print(f"uploadRepository-getUploadProgress: {str(e)}")
             return {"error": True, "message": str(e)}
         
-    async def update_success_count(
-        db: AsyncSession,
-        file_transaction_id: int,
-        success_count: int,
-        duplicate_count:int
-    ):
-        # 1️⃣ Fetch existing record_details
-        stmt = select(UploadFile.record_details).where(
-            UploadFile.id == file_transaction_id
-        )
-        result = await db.execute(stmt)
-        record_details = result.scalar_one_or_none()
-
-        if not record_details:
-            return
-
-        # 2️⃣ Convert JSON → dict
-        if isinstance(record_details, str):
-            record_details = json.loads(record_details)
-
-        # 3️⃣ Update only success
-        record_details["success"] = success_count
-        record_details["duplicate"] = duplicate_count
-        # record_details["status"] = 1
-
-        # Optional: auto-calc failed
-        if "total_records" in record_details:
-            record_details["failed"] = (
-                record_details["total_records"] - success_count
-            )
-
-        # 4️⃣ Update only this column
-        update_stmt = (
-            update(UploadFile)
-            .where(UploadFile.id == file_transaction_id)
-            .values(record_details=json.dumps(record_details))
-        )
-
-        await db.execute(update_stmt)
-        await db.commit()
-        
     @staticmethod
     async def getFileList(db: AsyncSession, offset: int, limit: int):
         try:
@@ -426,7 +385,6 @@ class UploadRepository:
             total_stmt = select(func.count()).select_from(UploadFile)
             total_result = await db.execute(total_stmt)
             total = total_result.scalar()
-
             # Data query
             stmt = (
                 select(
@@ -461,19 +419,22 @@ class UploadRepository:
             data = []
             for upload, user_id, f_name, m_name, l_name, email, channel_id, channel_name,source_id, source_name, source_type in rows:
                 file_details_obj = None
-                file_record_obj = None
+                file_record_obj = {
+                    "total_records": upload.total_records,
+                    "processed": upload.processed_records,
+                    "success": upload.success_records,
+                    "failed": upload.failed_records,
+                    "duplicates": upload.duplicate_records,
+                    "progress_percentage": upload.progress_percentage,
+                }
+
 
                 if upload.file_details:
                     try:
                         file_details_obj = json.loads(upload.file_details)
                     except json.JSONDecodeError:
                         pass
-
-                if upload.record_details:
-                    try:
-                        file_record_obj = json.loads(upload.record_details)
-                    except json.JSONDecodeError:
-                        pass
+                    
                 data.append({
                     "id": upload.id,
                     "file_name": upload.file_name,

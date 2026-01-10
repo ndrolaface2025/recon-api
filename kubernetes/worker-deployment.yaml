@@ -15,4 +15,4 @@ spec:
       containers:
       - name: worker
         image: recon-workers:latest
-        command: ["celery", "-A", "app.workers.celery_app.cel", "worker", "--loglevel=info", "-Q", "recon"]
+        command: ["celery", "-A", "app.celery_app", "worker", "--loglevel=info", "-Q", "recon"]

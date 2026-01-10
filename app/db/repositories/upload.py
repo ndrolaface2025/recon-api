@@ -1,9 +1,8 @@
 import json
-from turtle import update
 from typing import Any, Dict, List
 from datetime import datetime
 
-from sqlalchemy import Integer, cast, delete, func, select, tuple_
+from sqlalchemy import Integer, cast, delete, func, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.channel_config import ChannelConfig

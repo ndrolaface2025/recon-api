@@ -5,6 +5,7 @@ class Transaction(Base):
     __tablename__ = "tbl_txn_transactions"
 
     id = Column(BigInteger, primary_key=True)
+    txn_id = Column(String(50), index=True)
     recon_reference_number = Column(String(255), nullable=True)
     channel_id = Column(BigInteger, ForeignKey("tbl_cfg_channels.id"), nullable=True)
     source_id = Column(BigInteger, ForeignKey("tbl_cfg_source.id"), nullable=True)

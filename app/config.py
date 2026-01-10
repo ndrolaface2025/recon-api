@@ -7,11 +7,12 @@ from typing import Optional, List
 
 load_dotenv()
 class Settings(BaseSettings):
-    APP_NAME: str = os.getenv("APP_NAME")  # can override via APP_NAME in .env
+    APP_NAME: str = os.getenv("APP_NAME") 
     ENV: str = os.getenv("ENV")
     DEBUG: bool = True
     DATABASE_URL: str
     REDIS_URL: Optional[str] = None
+    OPENAI_API_KEY: str
     JWT_SECRET: str = "change-me"
     S3_ENDPOINT: Optional[AnyUrl] = None
     S3_BUCKET: Optional[str] = None

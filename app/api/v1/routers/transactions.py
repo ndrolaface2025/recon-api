@@ -196,15 +196,26 @@ async def get_transactions(
             
             # Convert grouped data to list
             for recon_ref, group_data in grouped.items():
-                transaction_group = group_data["main"].copy()
-                transaction_group["atm_transactions"] = group_data["atm_transactions"]
-                transaction_group["switch_transactions"] = group_data["switch_transactions"]
-                transaction_group["cbs_transactions"] = group_data["cbs_transactions"]
-                transaction_group["network_transactions"] = group_data["network_transactions"]
-                transaction_group["card_transactions"] = group_data["card_transactions"]
-                transaction_group["settlement_transactions"] = group_data["settlement_transactions"]
-                transaction_group["ej_transactions"] = group_data["ej_transactions"]
-                transaction_group["platform_transactions"] = group_data["platform_transactions"]
+                # Only include source arrays that have data, no duplicate top-level data
+                transaction_group = {}
+                
+                if group_data["atm_transactions"]:
+                    transaction_group["atm_transactions"] = group_data["atm_transactions"]
+                if group_data["switch_transactions"]:
+                    transaction_group["switch_transactions"] = group_data["switch_transactions"]
+                if group_data["cbs_transactions"]:
+                    transaction_group["cbs_transactions"] = group_data["cbs_transactions"]
+                if group_data["network_transactions"]:
+                    transaction_group["network_transactions"] = group_data["network_transactions"]
+                if group_data["card_transactions"]:
+                    transaction_group["card_transactions"] = group_data["card_transactions"]
+                if group_data["settlement_transactions"]:
+                    transaction_group["settlement_transactions"] = group_data["settlement_transactions"]
+                if group_data["ej_transactions"]:
+                    transaction_group["ej_transactions"] = group_data["ej_transactions"]
+                if group_data["platform_transactions"]:
+                    transaction_group["platform_transactions"] = group_data["platform_transactions"]
+                
                 transactions.append(transaction_group)
         
         else:

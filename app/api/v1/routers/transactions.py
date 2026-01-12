@@ -107,15 +107,8 @@ async def get_transactions(
         result = await db.execute(query)
         rows = result.all()
         
-        # Transform results
-        transactions = []
-        for row in rows:
-            txn = row[0]  # Transaction object
-            channel_name = row[1]
-            source_name = row[2]
-            match_rule_name = row[3]
-            
-            # Determine match status label
+        # Helper function to create transaction dict
+        def create_transaction_dict(txn, channel_name, source_name, match_rule_name):
             if txn.match_status == 1:
                 match_status_label = "Matched"
             elif txn.match_status == 2:
@@ -123,7 +116,7 @@ async def get_transactions(
             else:
                 match_status_label = "Unmatched"
             
-            transactions.append({
+            return {
                 "id": txn.id,
                 "recon_reference_number": txn.recon_reference_number,
                 "channel_id": txn.channel_id,
@@ -146,7 +139,83 @@ async def get_transactions(
                 "comment": txn.comment,
                 "created_at": txn.created_at.isoformat() if txn.created_at else None,
                 "updated_at": txn.updated_at.isoformat() if txn.updated_at else None
-            })
+            }
+        
+        # Transform results based on match status
+        transactions = []
+        
+        # Group transactions by recon_reference_number for matched/partial
+        if match_status and match_status.lower() in ["matched", "partial"]:
+            # Group by recon_reference_number
+            grouped = {}
+            for row in rows:
+                txn = row[0]
+                channel_name = row[1]
+                source_name = row[2]
+                match_rule_name = row[3]
+                
+                recon_ref = txn.recon_reference_number or f"txn_{txn.id}"
+                
+                if recon_ref not in grouped:
+                    grouped[recon_ref] = {
+                        "main": None,
+                        "atm_transactions": [],
+                        "switch_transactions": [],
+                        "cbs_transactions": [],
+                        "network_transactions": [],
+                        "card_transactions": [],
+                        "settlement_transactions": [],
+                        "ej_transactions": [],
+                        "platform_transactions": []
+                    }
+                
+                txn_dict = create_transaction_dict(txn, channel_name, source_name, match_rule_name)
+                
+                # Set the first transaction as main
+                if grouped[recon_ref]["main"] is None:
+                    grouped[recon_ref]["main"] = txn_dict.copy()
+                
+                # Group by source name (case-insensitive)
+                source_key = source_name.lower() if source_name else "unknown"
+                if "atm" in source_key:
+                    grouped[recon_ref]["atm_transactions"].append(txn_dict)
+                elif "switch" in source_key:
+                    grouped[recon_ref]["switch_transactions"].append(txn_dict)
+                elif "cbs" in source_key:
+                    grouped[recon_ref]["cbs_transactions"].append(txn_dict)
+                elif "network" in source_key:
+                    grouped[recon_ref]["network_transactions"].append(txn_dict)
+                elif "card" in source_key:
+                    grouped[recon_ref]["card_transactions"].append(txn_dict)
+                elif "settlement" in source_key:
+                    grouped[recon_ref]["settlement_transactions"].append(txn_dict)
+                elif "ej" in source_key or "journal" in source_key:
+                    grouped[recon_ref]["ej_transactions"].append(txn_dict)
+                elif "platform" in source_key:
+                    grouped[recon_ref]["platform_transactions"].append(txn_dict)
+            
+            # Convert grouped data to list
+            for recon_ref, group_data in grouped.items():
+                transaction_group = group_data["main"].copy()
+                transaction_group["atm_transactions"] = group_data["atm_transactions"]
+                transaction_group["switch_transactions"] = group_data["switch_transactions"]
+                transaction_group["cbs_transactions"] = group_data["cbs_transactions"]
+                transaction_group["network_transactions"] = group_data["network_transactions"]
+                transaction_group["card_transactions"] = group_data["card_transactions"]
+                transaction_group["settlement_transactions"] = group_data["settlement_transactions"]
+                transaction_group["ej_transactions"] = group_data["ej_transactions"]
+                transaction_group["platform_transactions"] = group_data["platform_transactions"]
+                transactions.append(transaction_group)
+        
+        else:
+            # For unmatched transactions, return all sources separately
+            for row in rows:
+                txn = row[0]
+                channel_name = row[1]
+                source_name = row[2]
+                match_rule_name = row[3]
+                
+                transactions.append(create_transaction_dict(txn, channel_name, source_name, match_rule_name))
         
         # Calculate pagination metadata
         total_pages = (total_records + page_size - 1) // page_size

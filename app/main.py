@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.logging_config import configure_logging
 from app.api.v1.routers import all_routers
+from app.api.v2.routers import all_routers_2
 from app.db.session import AsyncSessionLocal
 from app.db.init_db import init_db, seed_initial_data
 from app.api.v1.routers.reconciliation import router as reconciliation_router
@@ -44,6 +45,8 @@ def create_app() -> FastAPI:
 
     # ✅ Include routers
     for router in all_routers:
+        app.include_router(router)
+    for router in all_routers_2:
         app.include_router(router)
 
     app.include_router(reconciliation_router)

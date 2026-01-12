@@ -50,12 +50,13 @@ async def create_journal_entries(
         )
 
         if recon_ref and manual_result:
-            txn_ids = [txn.manual_txn_id for txn in manual_result["transactions"]]
+            txn_ids = [txn.id for txn in manual_result["transactions"]]
 
             await TransactionService.patch(
                 db=db,
-                txn_ids=txn_ids,
+                ids=txn_ids,
                 recon_reference_number=recon_ref,
+                match_status= 1,
                 payload={
                     "reconciled_status": reconciled_status,
                     "comment": comment

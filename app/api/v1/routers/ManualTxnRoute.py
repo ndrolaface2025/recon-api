@@ -4,6 +4,7 @@ from app.db.session import get_db
 from app.services.manualTransactionService import ManualTransactionService
 from app.services.transactionService import TransactionService
 from fastapi import HTTPException
+from app.db.models.manualTransaction import ManualTransaction
 
 router = APIRouter(prefix="/api/v1")
 
@@ -67,14 +68,15 @@ async def patch_manual_transactions(
     if payload.get("reconciled_status"):
 
         txn_ids = [
-            txn.manual_txn_id  
+            txn.id  
             for txn in manual_result["transactions"]
         ]
 
         await TransactionService.patch(
             db=db,
-            txn_ids=txn_ids,
+            ids=txn_ids,
             recon_reference_number=recon_ref,
+            match_status = 1,
             payload=payload
         )
 
@@ -99,10 +101,13 @@ async def get_all_manual_transactions(
 ):
     return await ManualTransactionService.get_all_json(db)
 
-
 @router.post("/manual-transactions")
 async def create_manual_transaction(
-    payload: dict = Body(...),
+    payload: list[dict] = Body(...),
     db: Session = Depends(get_db)
 ):
-    return await ManualTransactionService.create_manual_transaction(db, payload)
+    return await ManualTransactionService.create_many(
+        db,
+        payload,
+        ManualTransaction
+    )

@@ -15,7 +15,7 @@ class Transaction(Base):
     date = Column(String(50), nullable=True)
     account_number = Column(String(50), nullable=True)
     ccy = Column(String(10), nullable=True)
-    otherDetails = Column(Text, nullable=True)
+    otherdetails = Column(Text, nullable=True)
     file_transactions_id = Column(BigInteger, ForeignKey("tbl_upload_files.id"), nullable=True)
     reconciled_status = Column(Boolean, nullable=True)
     reconciled_mode = Column(Boolean, nullable=True)

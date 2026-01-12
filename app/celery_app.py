@@ -1,4 +1,4 @@
-# celery_app.py
+# app/celery_app.py
 from celery import Celery, signals
 import logging
 from app.config import settings

@@ -146,7 +146,7 @@ async def get_transactions(
         
         # Group transactions by recon_reference_number for matched/partial
         if match_status and match_status.lower() in ["matched", "partial"]:
-            # Group by recon_reference_number
+            # Group by reference_number (primary grouping key for matching)
             grouped = {}
             for row in rows:
                 txn = row[0]
@@ -154,11 +154,11 @@ async def get_transactions(
                 source_name = row[2]
                 match_rule_name = row[3]
                 
-                recon_ref = txn.recon_reference_number or f"txn_{txn.id}"
+                # Group by reference_number to keep matched transactions together
+                group_key = txn.reference_number if txn.reference_number else f"txn_{txn.id}"
                 
-                if recon_ref not in grouped:
-                    grouped[recon_ref] = {
-                        "main": None,
+                if group_key not in grouped:
+                    grouped[group_key] = {
                         "atm_transactions": [],
                         "switch_transactions": [],
                         "cbs_transactions": [],
@@ -171,32 +171,28 @@ async def get_transactions(
                 
                 txn_dict = create_transaction_dict(txn, channel_name, source_name, match_rule_name)
                 
-                # Set the first transaction as main
-                if grouped[recon_ref]["main"] is None:
-                    grouped[recon_ref]["main"] = txn_dict.copy()
-                
                 # Group by source name (case-insensitive)
                 source_key = source_name.lower() if source_name else "unknown"
                 if "atm" in source_key:
-                    grouped[recon_ref]["atm_transactions"].append(txn_dict)
+                    grouped[group_key]["atm_transactions"].append(txn_dict)
                 elif "switch" in source_key:
-                    grouped[recon_ref]["switch_transactions"].append(txn_dict)
+                    grouped[group_key]["switch_transactions"].append(txn_dict)
                 elif "cbs" in source_key:
-                    grouped[recon_ref]["cbs_transactions"].append(txn_dict)
+                    grouped[group_key]["cbs_transactions"].append(txn_dict)
                 elif "network" in source_key:
-                    grouped[recon_ref]["network_transactions"].append(txn_dict)
+                    grouped[group_key]["network_transactions"].append(txn_dict)
                 elif "card" in source_key:
-                    grouped[recon_ref]["card_transactions"].append(txn_dict)
+                    grouped[group_key]["card_transactions"].append(txn_dict)
                 elif "settlement" in source_key:
-                    grouped[recon_ref]["settlement_transactions"].append(txn_dict)
+                    grouped[group_key]["settlement_transactions"].append(txn_dict)
                 elif "ej" in source_key or "journal" in source_key:
-                    grouped[recon_ref]["ej_transactions"].append(txn_dict)
+                    grouped[group_key]["ej_transactions"].append(txn_dict)
                 elif "platform" in source_key:
-                    grouped[recon_ref]["platform_transactions"].append(txn_dict)
+                    grouped[group_key]["platform_transactions"].append(txn_dict)
             
             # Convert grouped data to list
-            for recon_ref, group_data in grouped.items():
-                # Only include source arrays that have data, no duplicate top-level data
+            for group_key, group_data in grouped.items():
+                # Only include source arrays that have data
                 transaction_group = {}
                 
                 if group_data["atm_transactions"]:

@@ -22,6 +22,7 @@ from typing import Dict, Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 import logging
+import json
 
 from app.new_engine.rule_complexity_analyzer import RuleComplexityAnalyzer, RuleComplexity
 from app.new_engine.application_matcher import ApplicationMatcher
@@ -136,11 +137,20 @@ class MatchingRuleDispatcher:
         if not row:
             return None
         
+        # Parse conditions JSON if it's a string
+        conditions = row.conditions
+        if isinstance(conditions, str):
+            try:
+                conditions = json.loads(conditions)
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse conditions JSON for rule {rule_id}: {e}")
+                return None
+        
         return {
             "id": row.id,
             "rule_name": row.rule_name,
             "channel_id": row.channel_id,
-            "conditions": row.conditions,
+            "conditions": conditions,
             "tolerance": row.tolerance,
             "status": row.status
         }

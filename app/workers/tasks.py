@@ -271,7 +271,15 @@ def auto_trigger_matching(
                     # Step 2: For each rule, check if all required sources have transactions
                     ready_to_match = False
                     for rule in rules:
+                        # Parse conditions JSON if it's a string
                         conditions = rule.conditions
+                        if isinstance(conditions, str):
+                            try:
+                                conditions = json.loads(conditions)
+                            except json.JSONDecodeError as e:
+                                print(f"   ⚠️  Failed to parse conditions for rule {rule.rule_id}: {e}")
+                                continue
+                        
                         required_source_names = conditions.get('sources', [])
                         required_count = len(required_source_names)
                         
@@ -282,15 +290,18 @@ def auto_trigger_matching(
                             print(f"   ⚠️  Skipping rule {rule.rule_id} - no sources defined")
                             continue
                         
-                        # Determine match type
-                        if required_count == 2:
-                            match_type = "2-way"
-                        elif required_count == 3:
-                            match_type = "3-way"
-                        elif required_count == 4:
-                            match_type = "4-way"
-                        else:
-                            match_type = f"{required_count}-way"
+                        # Get match type from conditions or determine from source count
+                        match_type = conditions.get('matching_type')
+                        if not match_type:
+                            # Fallback: determine from source count
+                            if required_count == 2:
+                                match_type = "2-way"
+                            elif required_count == 3:
+                                match_type = "3-way"
+                            elif required_count == 4:
+                                match_type = "4-way"
+                            else:
+                                match_type = f"{required_count}-way"
                         
                         # Step 3: Get source IDs for these source names
                         source_ids_query = """

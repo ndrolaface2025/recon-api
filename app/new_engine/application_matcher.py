@@ -238,8 +238,19 @@ class ApplicationMatcher:
         """
         from itertools import combinations
         
+        # Convert single = to == for Python comparison (frontend sends single =)
+        # Example: "ATM.reference_number = SWITCH.reference_number" → "ATM.reference_number == SWITCH.reference_number"
+        if isinstance(condition_groups, str):
+            # Replace single = with == but avoid replacing == with ====
+            condition_expr = condition_groups.replace('==', '@@DOUBLE_EQ@@')  # Protect existing ==
+            condition_expr = condition_expr.replace('=', '==')  # Convert single = to ==
+            condition_expr = condition_expr.replace('@@DOUBLE_EQ@@', '==')  # Restore original ==
+        else:
+            # Fallback for list format (legacy)
+            condition_expr = str(condition_groups)
+        
         # Parse condition to extract required sources
-        tree = ast.parse(condition_groups, mode="eval")
+        tree = ast.parse(condition_expr, mode="eval")
         ALLOWED_NODES = (
             ast.Expression,
             ast.Compare,

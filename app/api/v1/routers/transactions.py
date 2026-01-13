@@ -419,6 +419,56 @@ async def get_reconciliation_summary(
         }
 
 
+@router.get("/transactions/count")
+async def get_transaction_counts(
+    channel_id: int = Query(..., description="Channel ID to filter by"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get transaction counts by match status for a specific channel.
+    
+    Returns:
+    - matched: Count of fully matched transactions (match_status = 1)
+    - partially_matched: Count of partially matched transactions (match_status = 2)
+    - not_matched: Count of unmatched transactions (match_status = 0 or NULL)
+    """
+    try:
+        # Query to count transactions by match_status
+        count_query = select(
+            func.count(case((Transaction.match_status == 1, 1))).label('matched'),
+            func.count(case((Transaction.match_status == 2, 1))).label('partially_matched'),
+            func.count(case((or_(Transaction.match_status == 0, Transaction.match_status == None), 1))).label('not_matched')
+        ).where(
+            Transaction.channel_id == channel_id
+        )
+        
+        result = await db.execute(count_query)
+        counts = result.first()
+        
+        return {
+            "status": "success",
+            "error": False,
+            "message": "Transaction counts retrieved successfully",
+            "data": {
+                "matched": counts.matched if counts else 0,
+                "partially_matched": counts.partially_matched if counts else 0,
+                "not_matched": counts.not_matched if counts else 0
+            }
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": True,
+            "message": f"Failed to retrieve transaction counts: {str(e)}",
+            "data": {
+                "matched": 0,
+                "partially_matched": 0,
+                "not_matched": 0
+            }
+        }
+
+
 @router.get("/transactions/{transaction_id}")
 async def get_transaction_details(
     transaction_id: int,
@@ -543,3 +593,4 @@ async def get_transaction_details(
             "message": str(e),
             "data": {}
         }
+

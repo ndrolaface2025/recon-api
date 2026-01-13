@@ -13,6 +13,17 @@ class GeneralLedgerService:
         payload: GeneralLedgerCreateRequest,
         user_id: int
     ) -> GeneralLedger:
+        
+        existing_gl = await db.execute(
+        select(GeneralLedger).where(
+            GeneralLedger.general_ledger == payload.general_ledger
+        )
+        )
+        if existing_gl.scalars().first():
+            raise HTTPException(
+                status_code=400,
+                detail="General Ledger already exists"
+            )
 
         if payload.apply_to_all_channels:
             channel_id = None

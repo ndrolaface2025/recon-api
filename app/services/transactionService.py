@@ -10,7 +10,7 @@ class TransactionService:
     db: Session,
     ids: list[int],
     recon_reference_number: str,
-    match_status: int,
+    # match_status: int,
     payload: dict
     ):
         txns = (
@@ -58,7 +58,7 @@ class TransactionService:
                     setattr(txn, field, value)
 
             txn.recon_reference_number = recon_reference_number
-            txn.match_status = match_status
+            # txn.match_status = match_status
 
         await db.commit()
         return txns

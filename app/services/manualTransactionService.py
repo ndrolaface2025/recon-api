@@ -10,38 +10,81 @@ from app.db.models.source_config import SourceConfig
 from sqlalchemy import select
 from datetime import datetime
 from datetime import datetime, timezone
-
+from sqlalchemy.exc import IntegrityError
+from fastapi import HTTPException
 
 
 class ManualTransactionService:
+
+    # @staticmethod
+    # async def create_many(db, payloads: list[dict], model):
+    #     if not payloads:
+    #         return {"message": "No records", "count": 0}
+
+    #     records = []
+
+    #     for data in payloads:
+    #         if isinstance(data.get("created_at"), str):
+    #             data["created_at"] = (
+    #                 datetime.fromisoformat(
+    #                     data["created_at"].replace("Z", "+00:00")
+    #                 )
+    #                 .astimezone(timezone.utc)
+    #                 .replace(tzinfo=None)
+    #             )
+
+    #         records.append(model(**data))
+
+    #     db.add_all(records)
+    #     await db.commit()
+
+    #     return {
+    #         "message": "Records created",
+    #         "count": len(records),
+    #     }
 
     @staticmethod
     async def create_many(db, payloads: list[dict], model):
         if not payloads:
             return {"message": "No records", "count": 0}
 
-        records = []
+        inserted = 0
+        skipped = 0
 
         for data in payloads:
-            # 🔧 created_at → naive datetime (UTC, no tzinfo)
-            if isinstance(data.get("created_at"), str):
-                data["created_at"] = (
-                    datetime.fromisoformat(
-                        data["created_at"].replace("Z", "+00:00")
+            try:
+                if isinstance(data.get("created_at"), str):
+                    data["created_at"] = (
+                        datetime.fromisoformat(
+                            data["created_at"].replace("Z", "+00:00")
+                        )
+                        .astimezone(timezone.utc)
+                        .replace(tzinfo=None)
                     )
-                    .astimezone(timezone.utc)
-                    .replace(tzinfo=None)
-                )
 
-            records.append(model(**data))
+                record = model(**data)
+                db.add(record)
+                await db.commit()
+                inserted += 1
 
-        db.add_all(records)
-        await db.commit()
+            except IntegrityError:
+                await db.rollback()
+                skipped += 1
+                continue  # skip duplicate
+
+        if inserted == 0 and skipped > 0:
+            # everything was duplicate
+            raise HTTPException(
+                status_code=409,
+                detail="All transactions already exist"
+            )
 
         return {
-            "message": "Records created",
-            "count": len(records),
+            "message": "Manual transactions processed",
+            "inserted": inserted,
+            "skipped": skipped
         }
+
 
 
 

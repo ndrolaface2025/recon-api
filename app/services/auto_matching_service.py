@@ -160,12 +160,15 @@ class AutoMatchingService:
                 channel_id,
                 conditions,
                 tolerance,
-                CASE 
-                    WHEN json_array_length(conditions::json->'sources') = 2 THEN '2-way'
-                    WHEN json_array_length(conditions::json->'sources') = 3 THEN '3-way'
-                    WHEN json_array_length(conditions::json->'sources') = 4 THEN '4-way'
-                    ELSE CONCAT(json_array_length(conditions::json->'sources'), '-way')
-                END as match_type,
+                COALESCE(
+                    conditions::json->>'matching_type',
+                    CASE 
+                        WHEN json_array_length(conditions::json->'sources') = 2 THEN '2-way'
+                        WHEN json_array_length(conditions::json->'sources') = 3 THEN '3-way'
+                        WHEN json_array_length(conditions::json->'sources') = 4 THEN '4-way'
+                        ELSE CONCAT(json_array_length(conditions::json->'sources'), '-way')
+                    END
+                ) as match_type,
                 status
             FROM tbl_cfg_matching_rule
             WHERE channel_id = :channel_id

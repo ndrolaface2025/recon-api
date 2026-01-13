@@ -68,9 +68,13 @@ async def detect_source(file: UploadFile = File(...), db: AsyncSession = Depends
             # Map ML source to channel
             ml_to_channel = {
                 "ATM": "ATM",
+                "SWITCH": "ATM",  # SWITCH transactions are part of ATM channel
                 "POS": "POS", 
                 "CARD": "CARDS",
                 "CARDS": "CARDS",
+                "NETWORK": "CARDS",
+                "SETTLEMENT": "CARDS",
+                "CBS": "ATM",
                 "BANK": "ATM"  # Default bank to ATM
             }
             llm_detected_channel = ml_to_channel.get(ml_source, "UNKNOWN")
@@ -85,17 +89,27 @@ async def detect_source(file: UploadFile = File(...), db: AsyncSession = Depends
         source_to_channel_name = {
             "ATM_FILE": "ATM",
             "ATM": "ATM",
+            "SWITCH_FILE": "ATM",  # SWITCH is part of ATM channel
+            "SWITCH": "ATM",
+            "CBS_BANK_FILE": "ATM",
+            "CBS": "ATM",
+            "BANK": "ATM",
+            "POS_FILE": "POS",
             "POS": "POS",
+            "CARD_FILE": "CARDS",
             "CARD": "CARDS",
             "CARDS": "CARDS",
             "CARD_NETWORK_FILE": "CARDS",
-            "SWITCH_FILE": llm_detected_channel,  # Use LLM detected channel
-            "CBS_BANK_FILE": "ATM",  # Default to ATM
-            "BANK": "ATM"
+            "NETWORK": "CARDS",
+            "SETTLEMENT": "CARDS",
         }
         
         # Get channel name to look up
-        channel_name_to_find = source_to_channel_name.get(recommended_source_type, llm_detected_channel)
+        # Priority: 1) source type mapping, 2) LLM detected channel
+        channel_name_to_find = source_to_channel_name.get(
+            recommended_source_type, 
+            source_to_channel_name.get(recommended_source_type.replace("_FILE", ""), llm_detected_channel)
+        )
         
         print(f"Looking for channel name: {channel_name_to_find}")
         
@@ -179,14 +193,14 @@ async def detect_source(file: UploadFile = File(...), db: AsyncSession = Depends
             # Get the database source name
             db_source_name = source_name_mapping.get(recommended_source_type, recommended_source_type)
             
-            # For SWITCH predictions, use the channel_source_id from the detected channel
+            # For SWITCH predictions, use the switch_source_id from the detected channel
             if recommended_source_type == "SWITCH" and channel_details:
-                # Get the primary source for this channel
-                primary_source_id = channel_details.get("channel_source_id")
-                if primary_source_id:
-                    print(f"SWITCH detected, using channel's primary source ID: {primary_source_id}")
+                # Get the SWITCH source for this channel (not the primary channel_source_id!)
+                switch_source_id = channel_details.get("switch_source_id")
+                if switch_source_id:
+                    print(f"SWITCH detected, using channel's switch_source_id: {switch_source_id}")
                     source_query = select(SourceConfig).where(
-                        SourceConfig.id == primary_source_id,
+                        SourceConfig.id == switch_source_id,
                         SourceConfig.status == 1
                     )
                     source_result_db = await db.execute(source_query)
@@ -199,6 +213,7 @@ async def detect_source(file: UploadFile = File(...), db: AsyncSession = Depends
                             "source_type": source.source_type,
                             "status": source.status
                         }
+                        print(f"SWITCH source found: {source.source_name} (ID={source.id})")
             
             # If not SWITCH or no source found yet, try name-based matching
             if not source_details and db_source_name:
@@ -231,6 +246,12 @@ async def detect_source(file: UploadFile = File(...), db: AsyncSession = Depends
                             "status": source.status
                         }
                         break
+        
+        # DEBUG: Log detected source details
+        print(f"[DETECT-SOURCE DEBUG] Detected source_details: {source_details}")
+        print(f"[DETECT-SOURCE DEBUG] Detected channel_details: {channel_details}")
+        if source_details:
+            print(f"[DETECT-SOURCE DEBUG] *** RETURNING source_id={source_details['id']} for {source_details['source_name']} ***")
         
         # Get column mapping based on actual CSV columns
         column_mapping_dict = auto_map_columns(file_columns)

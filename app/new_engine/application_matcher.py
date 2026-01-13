@@ -114,7 +114,8 @@ class ApplicationMatcher:
             all_txn_ids = await self._update_matched_transactions(
                 matched_groups,
                 rule_id,
-                match_type
+                match_type,
+                total_sources=len(sources)
             )
             
             execution_time = (datetime.now() - start_time).total_seconds() * 1000
@@ -229,21 +230,28 @@ class ApplicationMatcher:
         tolerance: Optional[Dict[str, Any]],
         min_sources: int
     ) -> List[Dict[str, Any]]:
-
-        matched_groups = []
+        """
+        Find matching groups of transactions across sources.
         
+        Supports partial matching when min_sources < total_sources.
+        Groups transactions by reference_number (RRN) and validates conditions.
+        """
+        from itertools import combinations
+        
+        # Parse condition to extract required sources
         tree = ast.parse(condition_groups, mode="eval")
         ALLOWED_NODES = (
-                            ast.Expression,
-                            ast.Compare,
-                            ast.Eq,
-                            ast.BoolOp,
-                            ast.And,
-                            ast.Or,
-                            ast.Name,
-                            ast.Load,
-                            ast.Attribute,
-                        )
+            ast.Expression,
+            ast.Compare,
+            ast.Eq,
+            ast.BoolOp,
+            ast.And,
+            ast.Or,
+            ast.Name,
+            ast.Load,
+            ast.Attribute,
+        )
+        
         def validate_ast(node):
             if not isinstance(node, ALLOWED_NODES):
                 raise ValueError(f"Disallowed expression element: {type(node).__name__}")
@@ -251,6 +259,7 @@ class ApplicationMatcher:
                 validate_ast(child)
 
         validate_ast(tree)
+        
         class SourceCollector(ast.NodeVisitor):
             def __init__(self):
                 self.sources = set()
@@ -260,34 +269,90 @@ class ApplicationMatcher:
 
         collector = SourceCollector()
         collector.visit(tree)
-
         source_names = sorted(collector.sources)
-        first_source = source_names[0]
-
+        
+        logger.info(f"🔍 Finding matches: min_sources={min_sources}, total_sources={len(source_names)}, sources={source_names}")
+        
+        # Group transactions by RRN for each source
+        txns_by_rrn = {}
+        for source_name in source_names:
+            source_txns = transactions_by_source.get(source_name, [])
+            logger.info(f"   Source {source_name}: {len(source_txns)} transactions")
+            
+            for txn in source_txns:
+                rrn = txn.get("rrn")
+                if rrn:
+                    if rrn not in txns_by_rrn:
+                        txns_by_rrn[rrn] = {}
+                    if source_name not in txns_by_rrn[rrn]:
+                        txns_by_rrn[rrn][source_name] = []
+                    txns_by_rrn[rrn][source_name].append(txn)
+        
+        logger.info(f"   Found {len(txns_by_rrn)} unique RRNs")
+        
+        # Find matching groups
+        matched_groups = []
         compiled_expr = compile(tree, "<rule>", "eval")
-        source_lists = [transactions_by_source[src] for src in source_names]
-        candidates = {}
-        for txn_tuple in product(*source_lists):
-            context = {
-                src: SimpleNamespace(**txn)
-                for src, txn in zip(source_names, txn_tuple)
-            }
-
-            if eval(compiled_expr, {}, context):
-                print("Match Found -->", [context[src].id for src in source_names])
-                candidates = {
-                                src: txn
-                                for src, txn in zip(source_names, txn_tuple)
-                            }                
-            if len(candidates) >= min_sources:
-                # Verify full condition groups
-                # if self._evaluate_condition_groups(candidates, condition_groups, tolerance):
-                rrn = candidates[first_source]["rrn"]
-                matched_groups.append({
-                    "transactions": list(candidates.values()),
-                    "match_key": rrn if rrn else f"group_{len(matched_groups)}",
-                    "sources_matched": list(candidates.keys())
-                })
+        
+        for rrn, sources_dict in txns_by_rrn.items():
+            # Check if we have enough sources for this RRN
+            available_sources = list(sources_dict.keys())
+            num_sources = len(available_sources)
+            
+            if num_sources < min_sources:
+                continue
+            
+            logger.debug(f"   RRN {rrn}: {num_sources} sources available ({available_sources})")
+            
+            # If we have all sources, do full evaluation
+            if num_sources == len(source_names):
+                # All sources present - do Cartesian product as before
+                source_lists = [sources_dict[src] for src in source_names]
+                
+                for txn_tuple in product(*source_lists):
+                    context = {
+                        src: SimpleNamespace(**txn)
+                        for src, txn in zip(source_names, txn_tuple)
+                    }
+                    
+                    try:
+                        if eval(compiled_expr, {}, context):
+                            logger.info(f"✅ Match Found (FULL) --> RRN={rrn}, IDs={[context[src].id for src in source_names]}")
+                            matched_groups.append({
+                                "transactions": [txn for txn in txn_tuple],
+                                "match_key": rrn,
+                                "sources_matched": source_names
+                            })
+                            break  # Take first matching combination for this RRN
+                    except Exception as e:
+                        logger.debug(f"Condition evaluation error for RRN {rrn}: {e}")
+                        continue
+            
+            else:
+                # Partial match - we have min_sources <= num_sources < total_sources
+                # Try all combinations of available sources that meet min_sources
+                for combo_size in range(num_sources, min_sources - 1, -1):
+                    for source_combo in combinations(available_sources, combo_size):
+                        source_combo = sorted(source_combo)
+                        
+                        # Build a partial condition that only references these sources
+                        # For reference_number equality, we just check the available sources match
+                        source_lists = [sources_dict[src] for src in source_combo]
+                        
+                        for txn_tuple in product(*source_lists):
+                            # Check if reference_numbers match across available sources
+                            rrns = [txn.get("rrn") for txn in txn_tuple]
+                            if len(set(rrns)) == 1 and rrns[0]:  # All RRNs are the same and not None
+                                logger.info(f"✅ Match Found (PARTIAL) --> RRN={rrn}, sources={source_combo}, IDs={[txn['id'] for txn in txn_tuple]}")
+                                matched_groups.append({
+                                    "transactions": [txn for txn in txn_tuple],
+                                    "match_key": rrn,
+                                    "sources_matched": list(source_combo)
+                                })
+                                break  # Take first matching combination
+                        else:
+                            continue
+                        break  # Found a match, stop trying smaller combinations
         
         logger.info(f"Found {len(matched_groups)} matching groups")
         return matched_groups
@@ -729,24 +794,50 @@ class ApplicationMatcher:
         self,
         matched_groups: List[Dict[str, Any]],
         rule_id: int,
-        match_type: str
+        match_type: str,
+        total_sources: int = None
     ) -> List[int]:
         """
         Update all matched transactions in database
         Set match_status, reconciled_status, matched_with_txn_id
+        
+        Args:
+            matched_groups: List of matched transaction groups
+            rule_id: ID of the matching rule
+            match_type: Overall match type (FULL/PARTIAL)
+            total_sources: Total number of sources in the rule (for dynamic match_status)
         """
         all_txn_ids = []
-        match_status = 1 if match_type == "FULL" else 2
-        reconciled_mode = True if match_type == "FULL" else False
-        recon_reference_number = self.generate_reference() if match_type == "FULL" else None
         
         for group in matched_groups:
             transactions = group["transactions"]
             txn_ids = [txn["id"] for txn in transactions]
             all_txn_ids.extend(txn_ids)
             
+            # Determine match_status based on actual sources matched
+            sources_matched = len(group.get("sources_matched", transactions))
+            
+            # Dynamic match status:
+            # - If all sources matched: match_status = 1 (FULL)
+            # - If partial sources matched: match_status = 2 (PARTIAL)
+            if total_sources and sources_matched < total_sources:
+                match_status = 2  # Partial match
+                actual_match_type = "PARTIAL"
+                reconciled_mode = False
+                recon_reference_number = None
+            else:
+                match_status = 1  # Full match
+                actual_match_type = "FULL"
+                reconciled_mode = True
+                recon_reference_number = self.generate_reference()
+            
+            logger.warning(
+                f"💾 Updating {len(txn_ids)} transactions: sources_matched={sources_matched}, "
+                f"total_sources={total_sources}, match_status={match_status} ({actual_match_type})"
+            )
+            
             # Create match condition description
-            match_condition = f"Matched by rule {rule_id} ({match_type}) - Application Layer"
+            match_condition = f"Matched by rule {rule_id} ({actual_match_type}: {sources_matched} sources) - Application Layer"
             
             # Update each transaction
             update_query = """

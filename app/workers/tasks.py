@@ -3,6 +3,7 @@ import asyncio, json
 from app.engine.reconciliation_engine import ReconciliationEngine
 from app.db.session import AsyncSessionLocal
 from app.db.repositories.upload import UploadRepository
+from app.services.auto_matching_service import AutoMatchingService
 
 import pandas as pd
 from app.services.data_normalize_service import ReconDataNormalizer
@@ -90,24 +91,33 @@ def process_upload_batch(
                     print(f"Normalized data for batch {batch_number}... with {len(batch_data)} records and data sample: {batch_data[0] if batch_data else 'No records'}")
                     df = pd.DataFrame(batch_data)
 
-                    # df_normalized = (
-                    #     ReconDataNormalizer(df)
-                    #     .run_all(
-                    #         datetime_column=column_mappings.get("date"),
-                    #         amount_column=column_mappings.get("amount"),
-                    #         schema=SCHEMA_V1,
-                    #         tz="UTC"
-                    #     )
-                    # )
-
-                    df_normalized = (
-                        ReconDataNormalizer(df)
-                        .normalize_columns()
-                        .sanitize_strings()
-                        .normalize_datetime("datetime")
-                        .clean_amount("amount")
-                        .get_df()
-                    )
+                    # Normalize columns first (converts to lowercase)
+                    normalizer = ReconDataNormalizer(df).normalize_columns()
+                    
+                    # Get the actual date column name from mappings (already lowercase after normalize_columns)
+                    date_column = column_mappings.get("date")
+                    if date_column:
+                        date_column = date_column.lower()  # Ensure it's lowercase to match normalized columns
+                    
+                    # Get the amount column name
+                    amount_column = column_mappings.get("amount")
+                    if amount_column:
+                        amount_column = amount_column.lower()
+                    
+                    # Apply remaining normalizations
+                    normalizer = normalizer.sanitize_strings()
+                    
+                    # Normalize datetime if date column is mapped
+                    if date_column and date_column in normalizer.df.columns:
+                        print(f"Normalizing datetime column: {date_column}")
+                        normalizer = normalizer.normalize_datetime(date_column, tz="UTC")
+                    
+                    # Clean amount if amount column is mapped
+                    if amount_column and amount_column in normalizer.df.columns:
+                        print(f"Cleaning amount column: {amount_column}")
+                        normalizer = normalizer.clean_amount(amount_column)
+                    
+                    df_normalized = normalizer.get_df()
 
                     normalized_batch_data = df_normalized.to_dict(orient="records")
 
@@ -155,6 +165,19 @@ def process_upload_batch(
                     # Mark as completed if this is the last batch
                     if batch_number == total_batches:
                         await UploadRepository.updateFileStatus(db, file_id, status=2)
+                        
+                        # AUTO-TRIGGER MATCHING: Queue matching rules for this channel
+                        print(f"Last batch completed for file {file_id}. Triggering auto-matching...")
+                        channel_id = file_json.get("channel_id")
+                        source_id = file_json.get("source_id")
+                        
+                        # Trigger matching asynchronously (don't wait for it)
+                        auto_trigger_matching.delay(
+                            channel_id=channel_id,
+                            source_id=source_id,
+                            file_id=file_id
+                        )
+                        print(f"Auto-matching queued for channel {channel_id}")
                     
                     return {
                         "status": "success",
@@ -183,3 +206,74 @@ def process_upload_batch(
     except Exception as exc:
         print(f"Error processing batch {batch_number}: {str(exc)}")
         raise self.retry(exc=exc, countdown=30)
+
+
+@celery_app.task(bind=True, max_retries=2, name="app.workers.tasks.auto_trigger_matching")
+def auto_trigger_matching(
+    self,
+    channel_id: int,
+    source_id: int,
+    file_id: int
+):
+    """
+    Automatically trigger matching rules for a channel after file upload completes.
+    
+    This task is called when the last batch of a file upload is processed.
+    It executes all active matching rules configured for the channel.
+    
+    Args:
+        channel_id: Channel ID that received new transactions
+        source_id: Source ID of the uploaded file
+        file_id: Upload file ID for logging/tracking
+        
+    Returns:
+        {
+            "status": "success",
+            "channel_id": int,
+            "rules_executed": int,
+            "total_matches": int,
+            "message": str
+        }
+    """
+    print(f"Auto-matching triggered for channel {channel_id}, source {source_id}, file {file_id}")
+    
+    try:
+        async def trigger_matching():
+            async with AsyncSessionLocal() as db:
+                try:
+                    # Initialize auto-matching service
+                    auto_match_service = AutoMatchingService(db)
+                    
+                    # Trigger matching for the channel
+                    result = await auto_match_service.trigger_matching_for_channel(
+                        channel_id=channel_id,
+                        source_id=source_id,
+                        dry_run=False  # Execute for real
+                    )
+                    
+                    # Log result
+                    if result.get("status") == "success":
+                        print(
+                            f"Auto-matching completed for channel {channel_id}: "
+                            f"{result.get('rules_executed', 0)} rules executed, "
+                            f"{result.get('total_matches', 0)} matches found"
+                        )
+                    else:
+                        print(f"Auto-matching had issues: {result.get('message')}")
+                    
+                    return result
+                    
+                except Exception as e:
+                    print(f"Error in auto-matching: {str(e)}")
+                    raise
+        
+        # Run async function
+        loop = get_or_create_event_loop()
+        result = loop.run_until_complete(trigger_matching())
+        return result
+        
+    except Exception as exc:
+        print(f"Error in auto-trigger-matching: {str(exc)}")
+        # Retry with backoff (30s, then 60s)
+        raise self.retry(exc=exc, countdown=30)
+

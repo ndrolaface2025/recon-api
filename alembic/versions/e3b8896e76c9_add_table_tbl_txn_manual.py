@@ -47,17 +47,34 @@ def upgrade() -> None:
     # op.create_index(op.f('ix_tbl_cfg_matching_rule_rule_name'), 'tbl_cfg_matching_rule', ['rule_name'], unique=False)
     # op.create_index(op.f('ix_tbl_cfg_matching_rule_status'), 'tbl_cfg_matching_rule', ['status'], unique=False)
     # op.create_index(op.f('ix_tbl_txn_transactions_txn_id'), 'tbl_txn_transactions', ['txn_id'], unique=False)
-    op.add_column('tbl_upload_files', sa.Column('total_records', sa.BigInteger(), nullable=True, comment='Total records in uploaded file'))
-    op.add_column('tbl_upload_files', sa.Column('processed_records', sa.BigInteger(), nullable=True, comment='Number of records processed so far'))
-    op.add_column('tbl_upload_files', sa.Column('success_records', sa.BigInteger(), nullable=True, comment='Number of successfully inserted records'))
-    op.add_column('tbl_upload_files', sa.Column('failed_records', sa.BigInteger(), nullable=True, comment='Number of failed records'))
-    op.add_column('tbl_upload_files', sa.Column('duplicate_records', sa.BigInteger(), nullable=True, comment='Number of duplicate records skipped'))
-    op.add_column('tbl_upload_files', sa.Column('progress_percentage', sa.Float(), nullable=True, comment='Upload progress (0-100)'))
-    op.add_column('tbl_upload_files', sa.Column('upload_started_at', sa.TIMESTAMP(), nullable=True, comment='When upload processing started'))
-    op.add_column('tbl_upload_files', sa.Column('upload_completed_at', sa.TIMESTAMP(), nullable=True, comment='When upload processing completed'))
-    op.add_column('tbl_upload_files', sa.Column('processing_time_seconds', sa.Integer(), nullable=True, comment='Total processing time in seconds'))
-    op.add_column('tbl_upload_files', sa.Column('error_message', sa.Text(), nullable=True, comment='Error message if upload failed'))
-    op.add_column('tbl_upload_files', sa.Column('error_details', sa.Text(), nullable=True, comment='Detailed error information (JSON format)'))
+    
+    # Check if columns exist before adding them to handle cases where they were already added
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    existing_columns = {col['name'] for col in inspector.get_columns('tbl_upload_files')}
+    
+    if 'total_records' not in existing_columns:
+        op.add_column('tbl_upload_files', sa.Column('total_records', sa.BigInteger(), nullable=True, comment='Total records in uploaded file'))
+    if 'processed_records' not in existing_columns:
+        op.add_column('tbl_upload_files', sa.Column('processed_records', sa.BigInteger(), nullable=True, comment='Number of records processed so far'))
+    if 'success_records' not in existing_columns:
+        op.add_column('tbl_upload_files', sa.Column('success_records', sa.BigInteger(), nullable=True, comment='Number of successfully inserted records'))
+    if 'failed_records' not in existing_columns:
+        op.add_column('tbl_upload_files', sa.Column('failed_records', sa.BigInteger(), nullable=True, comment='Number of failed records'))
+    if 'duplicate_records' not in existing_columns:
+        op.add_column('tbl_upload_files', sa.Column('duplicate_records', sa.BigInteger(), nullable=True, comment='Number of duplicate records skipped'))
+    if 'progress_percentage' not in existing_columns:
+        op.add_column('tbl_upload_files', sa.Column('progress_percentage', sa.Float(), nullable=True, comment='Upload progress (0-100)'))
+    if 'upload_started_at' not in existing_columns:
+        op.add_column('tbl_upload_files', sa.Column('upload_started_at', sa.TIMESTAMP(), nullable=True, comment='When upload processing started'))
+    if 'upload_completed_at' not in existing_columns:
+        op.add_column('tbl_upload_files', sa.Column('upload_completed_at', sa.TIMESTAMP(), nullable=True, comment='When upload processing completed'))
+    if 'processing_time_seconds' not in existing_columns:
+        op.add_column('tbl_upload_files', sa.Column('processing_time_seconds', sa.Integer(), nullable=True, comment='Total processing time in seconds'))
+    if 'error_message' not in existing_columns:
+        op.add_column('tbl_upload_files', sa.Column('error_message', sa.Text(), nullable=True, comment='Error message if upload failed'))
+    if 'error_details' not in existing_columns:
+        op.add_column('tbl_upload_files', sa.Column('error_details', sa.Text(), nullable=True, comment='Detailed error information (JSON format)'))
     # ### end Alembic commands ###
 
 

@@ -6,6 +6,7 @@ from .ManualTxnRoute import router as manual_router
 from .SystemConfiguration import router as system_configuration_router
 from .matching_rules import router as matching_rules_router
 from .matching_execution import router as matching_execution_router
+from .auto_matching import router as auto_matching_router
 from .transactions import router as transactions_router
 from .TxnJournalEntryRoute import router as txn_journal_router
 from .GeneralLedgerRoute import router as general_ledger_router
@@ -22,6 +23,7 @@ all_routers = [
     example_router,
     matching_rules_router,
     matching_execution_router,
+    auto_matching_router,
     transactions_router,
     channel_router
 ]

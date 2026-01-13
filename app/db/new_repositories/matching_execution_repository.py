@@ -33,6 +33,30 @@ class MatchingExecutionRepository:
     ) -> Dict[str, Any]:
         
         try:
+            # If min_sources not specified, auto-detect based on rule type
+            if min_sources is None:
+                # Fetch rule to determine source count
+                query = """
+                    SELECT 
+                        conditions,
+                        json_array_length(conditions::json->'sources') as source_count
+                    FROM tbl_cfg_matching_rule
+                    WHERE id = :rule_id AND status = 1
+                """
+                result = await self.db.execute(
+                    text(query),
+                    {"rule_id": rule_id}
+                )
+                rule_data = result.fetchone()
+                
+                if rule_data:
+                    source_count = rule_data[1]
+                    # For 3-way or higher, enable partial matching (2 sources minimum)
+                    if source_count >= 3:
+                        min_sources = 2
+                        logger.info(f"Auto-enabling partial matching for {source_count}-way rule (min_sources=2)")
+                    # For 2-way, keep None (requires both sources)
+            
             # Use dispatcher to intelligently route the rule
             result = await self.dispatcher.execute_matching_rule(
                 rule_id=rule_id,

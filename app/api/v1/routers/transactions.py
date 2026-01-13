@@ -21,7 +21,7 @@ async def get_transactions(
     date_from: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
     date_to: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
     page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(50, ge=1, le=500, description="Records per page"),
+    page_size: int = Query(30, ge=1, le=500, description="Records per page"),
     sort_by: str = Query("created_at", description="Sort field"),
     sort_order: str = Query("desc", description="Sort order: asc or desc"),
     db: AsyncSession = Depends(get_db)
@@ -419,6 +419,89 @@ async def get_reconciliation_summary(
         }
 
 
+@router.get("/transactions/count")
+async def get_transaction_counts(
+    channel_id: int = Query(..., description="Channel ID to filter by"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get transaction counts by match status for a specific channel.
+    Counts are grouped by match groups (not individual transactions).
+    
+    Returns:
+    - matched: Count of fully matched groups (match_status = 1)
+    - partially_matched: Count of partially matched groups (match_status = 2)
+    - not_matched: Count of unmatched transactions (match_status = 0 or NULL)
+    
+    Example:
+    - If 3 transactions (ATM+SWITCH+CBS) match together → counts as 1 matched group
+    - If 2 transactions (ATM+SWITCH) partially match → counts as 1 partial match group
+    - Unmatched transactions are counted individually
+    """
+    try:
+        # Count FULL matches (match_status = 1) grouped by reference_number
+        full_match_query = select(
+            func.count(func.distinct(Transaction.reference_number)).label('matched_groups')
+        ).where(
+            and_(
+                Transaction.channel_id == channel_id,
+                Transaction.match_status == 1
+            )
+        )
+        
+        # Count PARTIAL matches (match_status = 2) grouped by reference_number
+        partial_match_query = select(
+            func.count(func.distinct(Transaction.reference_number)).label('partial_groups')
+        ).where(
+            and_(
+                Transaction.channel_id == channel_id,
+                Transaction.match_status == 2
+            )
+        )
+        
+        # Count UNMATCHED transactions (match_status = 0 or NULL)
+        unmatched_query = select(
+            func.count(Transaction.id).label('unmatched_count')
+        ).where(
+            and_(
+                Transaction.channel_id == channel_id,
+                or_(Transaction.match_status == 0, Transaction.match_status == None)
+            )
+        )
+        
+        # Execute all queries
+        full_result = await db.execute(full_match_query)
+        partial_result = await db.execute(partial_match_query)
+        unmatched_result = await db.execute(unmatched_query)
+        
+        full_count = full_result.scalar() or 0
+        partial_count = partial_result.scalar() or 0
+        unmatched_count = unmatched_result.scalar() or 0
+        
+        return {
+            "status": "success",
+            "error": False,
+            "message": "Transaction counts retrieved successfully",
+            "data": {
+                "matched": full_count,
+                "partially_matched": partial_count,
+                "not_matched": unmatched_count
+            }
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": True,
+            "message": f"Failed to retrieve transaction counts: {str(e)}",
+            "data": {
+                "matched": 0,
+                "partially_matched": 0,
+                "not_matched": 0
+            }
+        }
+
+
 @router.get("/transactions/{transaction_id}")
 async def get_transaction_details(
     transaction_id: int,
@@ -543,3 +626,4 @@ async def get_transaction_details(
             "message": str(e),
             "data": {}
         }
+

@@ -11,9 +11,15 @@ from .transactions import router as transactions_router
 from .TxnJournalEntryRoute import router as txn_journal_router
 from .GeneralLedgerRoute import router as general_ledger_router
 from .Channel import router as channel_router
+from .channel_config_routes import router as channel_config_router
+from .user_config_routes import router as user_config_router
+from .source_config_routes import router as source_config_router
 
 all_routers = [
     # reconciliation_router,
+    source_config_router,
+    user_config_router,
+    channel_config_router,
     general_ledger_router,
     txn_journal_router,
     manual_router,

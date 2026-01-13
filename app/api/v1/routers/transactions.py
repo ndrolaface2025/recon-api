@@ -426,33 +426,66 @@ async def get_transaction_counts(
 ):
     """
     Get transaction counts by match status for a specific channel.
+    Counts are grouped by match groups (not individual transactions).
     
     Returns:
-    - matched: Count of fully matched transactions (match_status = 1)
-    - partially_matched: Count of partially matched transactions (match_status = 2)
+    - matched: Count of fully matched groups (match_status = 1)
+    - partially_matched: Count of partially matched groups (match_status = 2)
     - not_matched: Count of unmatched transactions (match_status = 0 or NULL)
+    
+    Example:
+    - If 3 transactions (ATM+SWITCH+CBS) match together → counts as 1 matched group
+    - If 2 transactions (ATM+SWITCH) partially match → counts as 1 partial match group
+    - Unmatched transactions are counted individually
     """
     try:
-        # Query to count transactions by match_status
-        count_query = select(
-            func.count(case((Transaction.match_status == 1, 1))).label('matched'),
-            func.count(case((Transaction.match_status == 2, 1))).label('partially_matched'),
-            func.count(case((or_(Transaction.match_status == 0, Transaction.match_status == None), 1))).label('not_matched')
+        # Count FULL matches (match_status = 1) grouped by reference_number
+        full_match_query = select(
+            func.count(func.distinct(Transaction.reference_number)).label('matched_groups')
         ).where(
-            Transaction.channel_id == channel_id
+            and_(
+                Transaction.channel_id == channel_id,
+                Transaction.match_status == 1
+            )
         )
         
-        result = await db.execute(count_query)
-        counts = result.first()
+        # Count PARTIAL matches (match_status = 2) grouped by reference_number
+        partial_match_query = select(
+            func.count(func.distinct(Transaction.reference_number)).label('partial_groups')
+        ).where(
+            and_(
+                Transaction.channel_id == channel_id,
+                Transaction.match_status == 2
+            )
+        )
+        
+        # Count UNMATCHED transactions (match_status = 0 or NULL)
+        unmatched_query = select(
+            func.count(Transaction.id).label('unmatched_count')
+        ).where(
+            and_(
+                Transaction.channel_id == channel_id,
+                or_(Transaction.match_status == 0, Transaction.match_status == None)
+            )
+        )
+        
+        # Execute all queries
+        full_result = await db.execute(full_match_query)
+        partial_result = await db.execute(partial_match_query)
+        unmatched_result = await db.execute(unmatched_query)
+        
+        full_count = full_result.scalar() or 0
+        partial_count = partial_result.scalar() or 0
+        unmatched_count = unmatched_result.scalar() or 0
         
         return {
             "status": "success",
             "error": False,
             "message": "Transaction counts retrieved successfully",
             "data": {
-                "matched": counts.matched if counts else 0,
-                "partially_matched": counts.partially_matched if counts else 0,
-                "not_matched": counts.not_matched if counts else 0
+                "matched": full_count,
+                "partially_matched": partial_count,
+                "not_matched": unmatched_count
             }
         }
         

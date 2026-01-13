@@ -56,7 +56,7 @@ async def create_journal_entries(
                 db=db,
                 ids=txn_ids,
                 recon_reference_number=recon_ref,
-                match_status= 1,
+                # match_status= 2,
                 payload={
                     "reconciled_status": reconciled_status,
                     "comment": comment

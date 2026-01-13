@@ -17,8 +17,8 @@ echo ""
 CONTAINER_NAME="recon-api-backend"  # Change to your container name
 DB_HOST="postgres"  # If postgres is in separate container
 DB_PORT="5432"
-DB_NAME="recon_db"
-DB_USER="postgres"
+DB_NAME="recon_staging_db"
+DB_USER="staging_user"
 
 # Function to run command in container
 run_in_container() {

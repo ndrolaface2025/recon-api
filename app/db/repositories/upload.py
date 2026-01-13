@@ -177,12 +177,19 @@ class UploadRepository:
                 print(f"✓ Duplicate check complete: {len(existing_keys):,} total duplicates found\n")
             
             # Process each row and check against existing_keys (in-memory, super fast)
+            rows_processed = 0
             for row in fileData:
+                # Debug: Log first row to see actual column names
+                if rows_processed == 0:
+                    print(f"DEBUG - First row columns: {list(row.keys())}")
+                    print(f"DEBUG - First row data sample: {dict(list(row.items())[:5])}")
+                
                 # Build key for this row
                 key = [
                     fileJson["channel_id"],
                     fileJson["source_id"],
                 ]
+                rows_processed += 1
                 
                 if getAmountColumnName is not None and getAmountColumnName in row:
                     key.append(str(row[getAmountColumnName]))
@@ -214,17 +221,59 @@ class UploadRepository:
                     "updated_by": fileJson["updated_by"],
                     "version_number": fileJson["version_number"],
                 }
+                
+                # DEBUG: Log fileJson to see what source_id we're receiving
+                if len(new_records) == 0:  # Only log once per batch
+                    print(f"[UPLOAD DEBUG] fileJson: {fileJson}")
+                    print(f"[UPLOAD DEBUG] Saving with source_id={fileJson['source_id']}, channel_id={fileJson['channel_id']}")
                 if getAmountColumnName is not None and getAmountColumnName in row:
                     data["amount"] = str(row[getAmountColumnName])
 
                 if getDateTimeColumnName is not None and getDateTimeColumnName in row:
-                    data["date"] = str(row[getDateTimeColumnName])
+                    # Handle datetime properly - check if it's already a datetime/timestamp
+                    date_value = row[getDateTimeColumnName]
+                    if date_value is not None and str(date_value) not in ['', 'nan', 'NaT', 'None']:
+                        # If it's a pandas Timestamp or datetime object, format it properly
+                        if hasattr(date_value, 'strftime'):
+                            data["date"] = date_value.strftime('%Y-%m-%d %H:%M:%S')
+                        else:
+                            data["date"] = str(date_value)
 
                 if getAcountNumberColumnName is not None and getAcountNumberColumnName in row:
                     data["account_number"] = str(row[getAcountNumberColumnName])
 
                 if getCurrencyColumnName is not None and getCurrencyColumnName in row:
-                    data["ccy"] = str(row[getCurrencyColumnName])  
+                    data["ccy"] = str(row[getCurrencyColumnName])
+                
+                # Map reference_number from various possible field names
+                # Note: ReconDataNormalizer converts columns to lowercase, so check lowercase versions
+                reference_fields = ['rrn', 'reference_number', 'referencenumber', 'ref_number', 'refnumber', 'retrieval_reference_number']
+                reference_found = False
+                for field in reference_fields:
+                    if field in row and row[field] is not None and str(row[field]).strip():
+                        data["reference_number"] = str(row[field]).strip()
+                        reference_found = True
+                        break
+                
+                # Map txn_id from various possible field names
+                txn_id_fields = ['txn_id', 'transaction_id', 'stan', 'transactionid', 'txnid']
+                txn_id_found = False
+                for field in txn_id_fields:
+                    if field in row and row[field] is not None and str(row[field]).strip():
+                        data["txn_id"] = str(row[field]).strip()
+                        txn_id_found = True
+                        break
+                
+                # Debug log for first record to verify field mapping
+                if len(new_records) == 0:
+                    print(f"\n=== FIRST RECORD FIELD MAPPING DEBUG ===")
+                    print(f"Available fields in row: {list(row.keys())}")
+                    print(f"Sample data: {dict(list(row.items())[:5])}")
+                    print(f"Reference number mapped: {data.get('reference_number', 'NOT MAPPED')} (found: {reference_found})")
+                    print(f"Transaction ID mapped: {data.get('txn_id', 'NOT MAPPED')} (found: {txn_id_found})")
+                    print(f"Amount: {data.get('amount', 'NOT MAPPED')}")
+                    print(f"Date: {data.get('date', 'NOT MAPPED')}")
+                    print(f"=====================================\n")
                 
                 new_records.append(Transaction(**data))
 
@@ -332,15 +381,22 @@ class UploadRepository:
         
         Args:
             column_mappings: Dict with keys: date, amount, account_number, currency
+            Note: Column names will be converted to lowercase to match normalized data
         """
+        # Convert column names to lowercase to match normalized column names
+        date_col = column_mappings.get("date")
+        amount_col = column_mappings.get("amount")
+        account_col = column_mappings.get("account_number")
+        currency_col = column_mappings.get("currency")
+        
         return await UploadRepository.saveFileDetails(
             db=db,
             fileData=fileData,
             fileJson=fileJson,
-            getDateTimeColumnName=column_mappings.get("date"),
-            getAmountColumnName=column_mappings.get("amount"),
-            getAcountNumberColumnName=column_mappings.get("account_number"),
-            getCurrencyColumnName=column_mappings.get("currency")
+            getDateTimeColumnName=date_col.lower() if date_col else None,
+            getAmountColumnName=amount_col.lower() if amount_col else None,
+            getAcountNumberColumnName=account_col.lower() if account_col else None,
+            getCurrencyColumnName=currency_col.lower() if currency_col else None
         )
     
     @staticmethod

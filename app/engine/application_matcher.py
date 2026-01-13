@@ -110,7 +110,8 @@ class ApplicationMatcher:
             all_txn_ids = await self._update_matched_transactions(
                 matched_groups,
                 rule_id,
-                match_type
+                match_type,
+                total_sources=len(sources)
             )
             
             execution_time = (datetime.now() - start_time).total_seconds() * 1000
@@ -194,6 +195,13 @@ class ApplicationMatcher:
             ]
             
             logger.info(f"Fetched {len(transactions[source_name])} transactions from {source_name}")
+            if transactions[source_name]:
+                sample = transactions[source_name][0]
+                logger.info(
+                    f"  Sample transaction: ID={sample.get('id')}, "
+                    f"RRN={sample.get('reference_number')}, "
+                    f"Amount={sample.get('amount')}"
+                )
         
         return transactions
     
@@ -243,6 +251,15 @@ class ApplicationMatcher:
         # Get source names
         sources = list(transactions_by_source.keys())
         
+        logger.info(
+            f"🔍 Starting matching process: "
+            f"Sources={sources}, min_sources={min_sources}"
+        )
+        
+        # Log transaction counts per source
+        for source, txns in transactions_by_source.items():
+            logger.info(f"  {source}: {len(txns)} transactions")
+        
         # Build candidates: all possible transaction combinations
         # For 3 sources: iterate through source1, find matches in source2 and source3
         primary_source = sources[0]
@@ -267,11 +284,28 @@ class ApplicationMatcher:
             if len(candidates) >= min_sources:
                 # Verify full condition groups
                 if self._evaluate_condition_groups(candidates, condition_groups, tolerance):
+                    logger.warning(
+                        f"✅ Match found: {len(candidates)} sources matched - "
+                        f"Sources: {list(candidates.keys())} - "
+                        f"RRN: {primary_txn.get('reference_number', primary_txn.get('rrn', 'N/A'))}"
+                    )
                     matched_groups.append({
                         "transactions": list(candidates.values()),
                         "match_key": primary_txn.get("rrn", f"group_{len(matched_groups)}"),
                         "sources_matched": list(candidates.keys())
                     })
+                else:
+                    logger.warning(
+                        f"❌ Match rejected: {len(candidates)} sources found but conditions not met - "
+                        f"Sources: {list(candidates.keys())} - "
+                        f"RRN: {primary_txn.get('reference_number', primary_txn.get('rrn', 'N/A'))}"
+                    )
+            elif len(candidates) > 1:
+                logger.info(
+                    f"⚠️  Partial candidate: Only {len(candidates)} sources (need {min_sources}) - "
+                    f"Sources: {list(candidates.keys())} - "
+                    f"RRN: {primary_txn.get('reference_number', primary_txn.get('rrn', 'N/A'))}"
+                )
         
         logger.info(f"Found {len(matched_groups)} matching groups")
         return matched_groups
@@ -708,22 +742,47 @@ class ApplicationMatcher:
         self,
         matched_groups: List[Dict[str, Any]],
         rule_id: int,
-        match_type: str
+        match_type: str,
+        total_sources: int = None
     ) -> List[int]:
         """
         Update all matched transactions in database
         Set match_status, reconciled_status, matched_with_txn_id
+        
+        Args:
+            matched_groups: List of matched transaction groups
+            rule_id: ID of the matching rule
+            match_type: Overall match type (FULL/PARTIAL)
+            total_sources: Total number of sources in the rule (for dynamic match_status)
         """
         all_txn_ids = []
-        match_status = 1 if match_type == "FULL" else 2
         
         for group in matched_groups:
             transactions = group["transactions"]
             txn_ids = [txn["id"] for txn in transactions]
             all_txn_ids.extend(txn_ids)
             
+            # Determine match_status based on actual sources matched
+            sources_matched = len(group.get("sources_matched", transactions))
+            
+            # Dynamic match status:
+            # - If all sources matched: match_status = 1 (FULL)
+            # - If partial sources matched: match_status = 2 (PARTIAL)
+            if total_sources and sources_matched < total_sources:
+                match_status = 2  # Partial match
+                actual_match_type = "PARTIAL"
+            else:
+                match_status = 1  # Full match
+                actual_match_type = "FULL"
+            
+            logger.warning(
+                f"💾 Updating transactions: sources_matched={sources_matched}, "
+                f"total_sources={total_sources}, match_status={match_status}, "
+                f"txn_ids={txn_ids}"
+            )
+            
             # Create match condition description
-            match_condition = f"Matched by rule {rule_id} ({match_type}) - Application Layer"
+            match_condition = f"Matched by rule {rule_id} ({actual_match_type}: {sources_matched} sources) - Application Layer"
             
             # Update each transaction
             update_query = """

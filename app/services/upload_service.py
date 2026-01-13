@@ -90,6 +90,11 @@ class UploadService:
                 "updated_by": userDetail,
                 "version_number": 1
             }
+            
+            print(f"[UPLOAD SERVICE DEBUG] *** Creating fileJson ***")
+            print(f"[UPLOAD SERVICE DEBUG] channel_id={channel_id}, source_id={source_id}")
+            print(f"[UPLOAD SERVICE DEBUG] fileJson={fileJson}")
+            
             required_mappings = [
                 m for m in mappings
                 if m.get("required") is True

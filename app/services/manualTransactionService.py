@@ -8,33 +8,32 @@ from sqlalchemy.orm import Session
 from app.db.models.channel_config import ChannelConfig
 from app.db.models.source_config import SourceConfig
 from sqlalchemy import select
+from datetime import datetime
+from datetime import datetime, timezone
+
 
 
 class ManualTransactionService:
 
-    # @staticmethod
-    # async def create(db: Session, payload: dict):
-    #     stmt = insert(ManualTransaction).values(**payload)
-
-    #     # block insert ONLY when both fields match
-    #     stmt = stmt.on_conflict_do_nothing(
-    #         constraint="uq_recon_rrn_source_ref"
-    #     )
-
-    #     result = await db.execute(stmt)
-    #     db.commit()
-
-    #     # return existing or newly inserted row
-    #     return db.query(ManualTransaction).filter(
-    #         ManualTransaction.recon_reference_number == payload["recon_reference_number"],
-    #         ManualTransaction.source_reference_number == payload["source_reference_number"]
-    #     ).first()
     @staticmethod
     async def create_many(db, payloads: list[dict], model):
         if not payloads:
             return {"message": "No records", "count": 0}
 
-        records = [model(**data) for data in payloads]
+        records = []
+
+        for data in payloads:
+            # 🔧 created_at → naive datetime (UTC, no tzinfo)
+            if isinstance(data.get("created_at"), str):
+                data["created_at"] = (
+                    datetime.fromisoformat(
+                        data["created_at"].replace("Z", "+00:00")
+                    )
+                    .astimezone(timezone.utc)
+                    .replace(tzinfo=None)
+                )
+
+            records.append(model(**data))
 
         db.add_all(records)
         await db.commit()
@@ -43,6 +42,7 @@ class ManualTransactionService:
             "message": "Records created",
             "count": len(records),
         }
+
 
 
     # @staticmethod
@@ -93,7 +93,7 @@ class ManualTransactionService:
         # txns = db.query(ManualTransaction).filter(
         #     ManualTransaction.manual_txn_id.in_(manual_txn_ids)
         # ).all()
-        txns = (await db.execute(select(ManualTransaction).where(ManualTransaction.manual_txn_id.in_(manual_txn_ids)))).scalars().all()
+        txns = (await db.execute(select(ManualTransaction).where(ManualTransaction.id.in_(manual_txn_ids)))).scalars().all()
 
         if not txns:
             raise HTTPException(status_code=404, detail="Transaction not found")
@@ -181,15 +181,58 @@ class ManualTransactionService:
     #         for r in results
     #     ]
 
+    # @staticmethod
+    # async def get_all_json(db):
+    #     stmt = (
+    #         select(
+    #             ManualTransaction.manual_txn_id,
+    #             ManualTransaction.txn_date,
+    #             ManualTransaction.channel_id,
+    #             ChannelConfig.channel_name,
+    #             ManualTransaction.source_id,
+    #             SourceConfig.source_name,
+    #             ManualTransaction.json_file
+    #         )
+    #         .join(
+    #             ChannelConfig,
+    #             ChannelConfig.id == ManualTransaction.channel_id
+    #         )
+    #         .join(
+    #             SourceConfig,
+    #             SourceConfig.id == ManualTransaction.source_id
+    #         )
+    #         .where(
+    #             ManualTransaction.reconciled_status == False
+    #         )
+    #     )
+
+    #     result = await db.execute(stmt)
+    #     rows = result.all()
+
+    #     return [
+    #         {
+    #             "manual_txn_id": r.manual_txn_id,
+    #             "txn_date": r.txn_date,
+    #             "channel_id": r.channel_name,
+    #             # "channel_name": r.channel_name,
+    #             "source_id": r.source_name,
+    #             # "source_name": r.source_name,
+    #             "json_file": r.json_file
+    #         }
+    #         for r in rows
+    #     ]
+
     @staticmethod
     async def get_all_json(db):
         stmt = (
             select(
-                ManualTransaction.manual_txn_id,
-                ManualTransaction.channel_id,
-                ChannelConfig.channel_name,
-                ManualTransaction.source_id,
-                SourceConfig.source_name,
+                ManualTransaction.id,
+                ManualTransaction.reference_number,
+                ManualTransaction.account_number,
+                ManualTransaction.amount,
+                ManualTransaction.txn_date,
+                ChannelConfig.channel_name.label("channel_id"),
+                SourceConfig.source_name.label("source_id"),
                 ManualTransaction.json_file
             )
             .join(
@@ -201,8 +244,9 @@ class ManualTransactionService:
                 SourceConfig.id == ManualTransaction.source_id
             )
             .where(
-                ManualTransaction.reconciled_status == False
+                ManualTransaction.reconciled_status.is_(False)
             )
+            .order_by(ManualTransaction.id.desc())
         )
 
         result = await db.execute(stmt)
@@ -210,11 +254,13 @@ class ManualTransactionService:
 
         return [
             {
-                "manual_txn_id": r.manual_txn_id,
-                "channel_id": r.channel_name,
-                # "channel_name": r.channel_name,
-                "source_id": r.source_name,
-                # "source_name": r.source_name,
+                "manual_txn_id": r.id,
+                "reference_number": r.reference_number,
+                "account_number":r.account_number,
+                "amount":r.amount,
+                "txn_date": r.txn_date,
+                "channel_id": r.channel_id,   # channel NAME
+                "source_id": r.source_id,     # source NAME
                 "json_file": r.json_file
             }
             for r in rows

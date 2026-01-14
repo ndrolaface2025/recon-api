@@ -29,6 +29,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.APP_NAME,
         lifespan=lifespan,
+        redirect_slashes=False,  # Disable automatic trailing slash redirects
     )
 
     # ✅ CORS configuration

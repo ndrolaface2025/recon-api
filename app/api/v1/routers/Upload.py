@@ -13,7 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 router = APIRouter(prefix="/api/v1/upload", tags=["Upload"])
 
 
-@router.post("/")
+@router.post("/", name="upload_with_slash")
+@router.post("", name="upload_without_slash")  # Handle both with and without trailing slash
 async def upload(file: UploadFile = File(...),channel_id: int = Form(...),source_id: int = Form(...),mappings: str = Form(...), service: UploadService = Depends(get_service(UploadService))):
     mappings_data = json.loads(mappings)
     print(f"[UPLOAD API DEBUG] *** Received upload request ***")

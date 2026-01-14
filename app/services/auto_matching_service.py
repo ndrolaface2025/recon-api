@@ -160,15 +160,6 @@ class AutoMatchingService:
                 channel_id,
                 conditions,
                 tolerance,
-                COALESCE(
-                    conditions::json->>'matching_type',
-                    CASE 
-                        WHEN json_array_length(conditions::json->'sources') = 2 THEN '2-way'
-                        WHEN json_array_length(conditions::json->'sources') = 3 THEN '3-way'
-                        WHEN json_array_length(conditions::json->'sources') = 4 THEN '4-way'
-                        ELSE CONCAT(json_array_length(conditions::json->'sources'), '-way')
-                    END
-                ) as match_type,
                 status
             FROM tbl_cfg_matching_rule
             WHERE channel_id = :channel_id
@@ -183,17 +174,30 @@ class AutoMatchingService:
         
         rows = result.fetchall()
         
-        return [
-            {
+        rules = []
+        for row in rows:
+            # Parse conditions JSON (handle both string and dict)
+            import json
+            conditions = json.loads(row.conditions) if isinstance(row.conditions, str) else row.conditions
+            
+            # Extract match_type from conditions
+            match_type = conditions.get('matching_type')
+            if not match_type:
+                # Fallback: count sources
+                sources = conditions.get('sources', [])
+                num_sources = len(sources)
+                match_type = f"{num_sources}-way" if num_sources > 0 else "unknown"
+            
+            rules.append({
                 "id": row.id,
                 "rule_name": row.rule_name,
                 "channel_id": row.channel_id,
-                "match_type": row.match_type,
-                "conditions": row.conditions,
+                "match_type": match_type,
+                "conditions": conditions,
                 "tolerance": row.tolerance
-            }
-            for row in rows
-        ]
+            })
+        
+        return rules
     
     async def check_source_readiness(
         self,

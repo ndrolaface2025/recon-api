@@ -311,7 +311,7 @@ class ApplicationMatcher:
             num_sources = len(available_sources)
             
             if num_sources < min_sources:
-                logger.debug(f"   RRN {rrn}: SKIPPED - only {num_sources} sources (min required: {min_sources})")
+                logger.warning(f"   RRN {rrn}: SKIPPED - only {num_sources} sources (min required: {min_sources}), sources={available_sources}")
                 continue
             
             logger.info(f"   RRN {rrn}: {num_sources} sources available ({available_sources}), min_sources={min_sources}, total_sources={len(source_names)}")

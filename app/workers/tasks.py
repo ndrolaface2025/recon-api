@@ -10,6 +10,8 @@ from app.services.data_normalize_service import ReconDataNormalizer
 import asyncio
 from datetime import datetime
 from croniter import croniter
+import pytz
+
 
 SCHEMA_V1 = {
     "datetime": "datetime",
@@ -225,7 +227,7 @@ async def _run():
     from app.services.file_pickup_service import FilePickupService, UploadApiConfig
     from app.services.upload_service import UploadService
 
-    now = datetime.utcnow()
+    utc_now = datetime.utcnow()
 
     async with AsyncSessionLocal() as db:
         scheduler_service = UploadSchedulerConfigService(db)
@@ -240,24 +242,57 @@ async def _run():
             .get("data", [])
         )
 
+        print(f"📦 TOTAL ACTIVE SCHEDULERS FOUND: {len(schedulers)}")
+
         for scheduler in schedulers:
             cron_expr = scheduler["cron_expression"]
             timezone = scheduler.get("timezone", "UTC")
 
-            if not croniter.match(cron_expr, now):
+            raw_tz = scheduler.get("timezone", "UTC")
+            timezone = raw_tz.strip()
+
+            try:
+                tz = pytz.timezone(timezone)
+            except Exception:
+                print(
+                    "❌❌❌ INVALID TIMEZONE AFTER STRIP — FALLING BACK TO UTC ❌❌❌"
+                )
+                tz = pytz.UTC
+
+            now = pytz.utc.localize(utc_now).astimezone(tz)
+
+            try:
+                match = croniter.match(cron_expr, now)
+                print("✅ CRON MATCH RESULT:", match)
+            except Exception as e:
+                print("❌❌❌ CRON PARSE ERROR ❌❌❌")
+                print("❌ ERROR:", str(e))
                 continue
+
+            if not match:
+                print("⛔⛔⛔ CRON DID NOT MATCH — SKIPPING ⛔⛔⛔")
+                continue
+
+            print("🔥🔥🔥 CRON MATCHED — FIRING SCHEDULER 🔥🔥🔥")
 
             upload_api_id = scheduler["upload_api_id"]
 
             api_result = await upload_api_service.get_by_id(upload_api_id)
             api_cfg = api_result.get("result", {}).get("data")
 
-            if not api_cfg or api_cfg.get("is_active") != 1:
+            if not api_cfg:
+                print("❌❌❌ UPLOAD API NOT FOUND — SKIPPING ❌❌❌")
+                continue
+
+            if api_cfg.get("is_active") != 1:
+                print("⛔⛔⛔ UPLOAD API IS DISABLED — SKIPPING ⛔⛔⛔")
                 continue
 
             print(
-                f"\n▶ Scheduler fired: {scheduler['scheduler_name']} "
-                f"(upload_api_id={upload_api_id})"
+                f"\n🚀🚀🚀 EXECUTING PICKUP 🚀🚀🚀\n"
+                f"📛 API NAME: {api_cfg['api_name']}\n"
+                f"📂 METHOD: {api_cfg['method']}\n"
+                f"🌐 BASE URL: {api_cfg['base_url']}\n"
             )
 
             await pickup_service.pickup(
@@ -273,3 +308,5 @@ async def _run():
                     max_try=int(api_cfg.get("max_try", 1)),
                 )
             )
+
+            print("✅✅✅ PICKUP COMPLETED SUCCESSFULLY ✅✅✅")

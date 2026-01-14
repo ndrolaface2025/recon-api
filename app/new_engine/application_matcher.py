@@ -311,9 +311,10 @@ class ApplicationMatcher:
             num_sources = len(available_sources)
             
             if num_sources < min_sources:
+                logger.warning(f"   RRN {rrn}: SKIPPED - only {num_sources} sources (min required: {min_sources}), sources={available_sources}")
                 continue
             
-            logger.debug(f"   RRN {rrn}: {num_sources} sources available ({available_sources})")
+            logger.info(f"   RRN {rrn}: {num_sources} sources available ({available_sources}), min_sources={min_sources}, total_sources={len(source_names)}")
             
             # If we have all sources, do full evaluation
             if num_sources == len(source_names):
@@ -341,26 +342,46 @@ class ApplicationMatcher:
             
             else:
                 # Partial match - we have min_sources <= num_sources < total_sources
+                logger.info(f"   🔄 RRN {rrn}: Attempting PARTIAL match with {num_sources} sources (need {min_sources}, total possible {len(source_names)})")
                 # Try all combinations of available sources that meet min_sources
                 for combo_size in range(num_sources, min_sources - 1, -1):
+                    logger.debug(f"      Trying combinations of size {combo_size}")
                     for source_combo in combinations(available_sources, combo_size):
                         source_combo = sorted(source_combo)
                         
                         # Build a partial condition that only references these sources
-                        # For reference_number equality, we just check the available sources match
                         source_lists = [sources_dict[src] for src in source_combo]
                         
                         for txn_tuple in product(*source_lists):
-                            # Check if reference_numbers match across available sources
-                            rrns = [txn.get("rrn") for txn in txn_tuple]
-                            if len(set(rrns)) == 1 and rrns[0]:  # All RRNs are the same and not None
-                                logger.info(f"✅ Match Found (PARTIAL) --> RRN={rrn}, sources={source_combo}, IDs={[txn['id'] for txn in txn_tuple]}")
-                                matched_groups.append({
-                                    "transactions": [txn for txn in txn_tuple],
-                                    "match_key": rrn,
-                                    "sources_matched": list(source_combo)
-                                })
-                                break  # Take first matching combination
+                            # Build context for only the available sources
+                            context = {
+                                src: SimpleNamespace(**txn)
+                                for src, txn in zip(source_combo, txn_tuple)
+                            }
+                            
+                            # Build a simplified expression for partial match
+                            # Check if all available sources have matching reference numbers
+                            try:
+                                # Create a chain of equality checks: src1.reference_number == src2.reference_number == src3.reference_number
+                                partial_expr = " and ".join([
+                                    f"{source_combo[i]}.reference_number == {source_combo[i+1]}.reference_number"
+                                    for i in range(len(source_combo) - 1)
+                                ])
+                                
+                                logger.debug(f"         Evaluating: {partial_expr}")
+                                if eval(partial_expr, {}, context):
+                                    logger.warning(f"✅ Match Found (PARTIAL) --> RRN={rrn}, sources={source_combo}, IDs={[context[src].id for src in source_combo]}")
+                                    matched_groups.append({
+                                        "transactions": [txn for txn in txn_tuple],
+                                        "match_key": rrn,
+                                        "sources_matched": list(source_combo)
+                                    })
+                                    break  # Take first matching combination
+                                else:
+                                    logger.debug(f"         Expression evaluated to False")
+                            except Exception as e:
+                                logger.warning(f"Partial match evaluation error for RRN {rrn}: {e}")
+                                continue
                         else:
                             continue
                         break  # Found a match, stop trying smaller combinations

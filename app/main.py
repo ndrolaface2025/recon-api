@@ -37,6 +37,8 @@ def create_app() -> FastAPI:
         allow_origins=[
             "http://localhost:5173",
             "http://localhost:3000",
+            "https://ai-recon.vercel.app",  # Production frontend
+            "https://rolatax.rolaface.com",  # Production backend (for same-origin requests)
         ],
         allow_credentials=True,
         allow_methods=["*"],

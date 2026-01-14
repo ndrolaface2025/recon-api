@@ -1,4 +1,4 @@
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.upload_api_config import UploadAPIConfig
@@ -7,10 +7,7 @@ from app.db.models.upload_api_config import UploadAPIConfig
 class UploadAPIConfigRepository:
 
     @staticmethod
-    async def createUploadAPIConfig(
-        db: AsyncSession,
-        payload: dict
-    ):
+    async def create(db: AsyncSession, payload: dict):
         try:
             cfg = UploadAPIConfig(**payload)
             db.add(cfg)
@@ -19,169 +16,127 @@ class UploadAPIConfigRepository:
 
             return {
                 "status": "success",
-                "data": {
-                    "id": cfg.id,
-                    "channel_id": cfg.channel_id,
-                    "api_name": cfg.api_name,
-                    "method": cfg.method,
-                    "base_url": cfg.base_url,
-                    "responce_formate": cfg.responce_formate,
-                    "auth_type": cfg.auth_type,
-                    "api_time_out": cfg.api_time_out,
-                    "max_try": cfg.max_try,
-                    "created_at": cfg.created_at,
-                    "version_number": cfg.version_number,
-                }
+                "data": UploadAPIConfigRepository._serialize(cfg),
             }
 
         except Exception as e:
             await db.rollback()
-            print("UploadAPIConfigRepository.createUploadAPIConfig error:", str(e))
-            return {
-                "status": "error",
-                "message": "Failed to create upload API config",
-                "error": str(e),
-            }
+            return {"status": "error", "message": str(e)}
 
     @staticmethod
-    async def getUploadAPIConfigList(db: AsyncSession):
+    async def get_all(db: AsyncSession, filters: dict):
         try:
-            # ✅ Total count
-            total_stmt = select(func.count()).select_from(UploadAPIConfig)
-            total_result = await db.execute(total_stmt)
-            total = total_result.scalar() or 0
+            stmt = select(UploadAPIConfig)
 
-            # ✅ Fetch list
-            stmt = (
-                select(UploadAPIConfig)
-                .order_by(UploadAPIConfig.created_at.desc())
-            )
+            if filters.get("channel_id") is not None:
+                stmt = stmt.where(UploadAPIConfig.channel_id == filters["channel_id"])
 
-            result = await db.execute(stmt)
-            configs = result.scalars().all()
+            if filters.get("api_name"):
+                stmt = stmt.where(
+                    UploadAPIConfig.api_name.ilike(f"%{filters['api_name']}%")
+                )
 
-            data = [
-                {
-                    "id": cfg.id,
-                    "channel_id": cfg.channel_id,
-                    "api_name": cfg.api_name,
-                    "method": cfg.method,
-                    "base_url": cfg.base_url,
-                    "responce_formate": cfg.responce_formate,
-                    "auth_type": cfg.auth_type,
-                    "api_time_out": cfg.api_time_out,
-                    "max_try": cfg.max_try,
-                    "created_at": cfg.created_at,
-                    "version_number": cfg.version_number,
-                }
-                for cfg in configs
-            ]
+            if filters.get("method"):
+                stmt = stmt.where(UploadAPIConfig.method == filters["method"])
+
+            if filters.get("auth_type"):
+                stmt = stmt.where(UploadAPIConfig.auth_type == filters["auth_type"])
+
+            if filters.get("is_active") is not None:
+                stmt = stmt.where(UploadAPIConfig.is_active == filters["is_active"])
+
+            count_stmt = select(func.count()).select_from(stmt.subquery())
+            total = (await db.execute(count_stmt)).scalar() or 0
+
+            stmt = stmt.order_by(UploadAPIConfig.created_at.desc())
+            rows = (await db.execute(stmt)).scalars().all()
 
             return {
                 "status": "success",
                 "total": total,
-                "count": len(data),
-                "data": data,
+                "count": len(rows),
+                "data": [UploadAPIConfigRepository._serialize(r) for r in rows],
             }
 
         except Exception as e:
-            await db.rollback()
-            print("UploadAPIConfigRepository.getUploadAPIConfigList error:", str(e))
-            return {
-                "status": "error",
-                "message": "Failed to fetch upload API config list",
-                "error": str(e),
-            }
+            return {"status": "error", "message": str(e)}
 
     @staticmethod
-    async def getUploadAPIConfigById(db: AsyncSession, config_id: int):
-        try:
-            stmt = select(UploadAPIConfig).where(
-                UploadAPIConfig.id == config_id
+    async def get_by_id(db: AsyncSession, config_id: int):
+        cfg = (
+            await db.execute(
+                select(UploadAPIConfig).where(UploadAPIConfig.id == config_id)
             )
-            result = await db.execute(stmt)
-            cfg = result.scalar_one_or_none()
+        ).scalar_one_or_none()
 
-            if not cfg:
-                return {
-                    "status": "error",
-                    "message": "Upload API config not found",
-                }
+        if not cfg:
+            return {"status": "error", "message": "Upload API config not found"}
 
-            data = {
-                "id": cfg.id,
-                "channel_id": cfg.channel_id,
-                "api_name": cfg.api_name,
-                "method": cfg.method,
-                "base_url": cfg.base_url,
-                "responce_formate": cfg.responce_formate,
-                "auth_type": cfg.auth_type,
-                "auth_token": cfg.auth_token,
-                "api_time_out": cfg.api_time_out,
-                "max_try": cfg.max_try,
-                "created_at": cfg.created_at,
-                "version_number": cfg.version_number,
-            }
-
-            return {
-                "status": "success",
-                "data": data,
-            }
-
-        except Exception as e:
-            await db.rollback()
-            print("UploadAPIConfigRepository.getUploadAPIConfigById error:", str(e))
-            return {
-                "status": "error",
-                "message": "Failed to fetch upload API config",
-                "error": str(e),
-            }
+        return {"status": "success", "data": UploadAPIConfigRepository._serialize(cfg)}
 
     @staticmethod
-    async def getUploadAPIConfigByChannelId(
-        db: AsyncSession, channel_id: int
-    ):
+    async def get_by_channel_id(db: AsyncSession, channel_id: int):
+        rows = (
+            (
+                await db.execute(
+                    select(UploadAPIConfig)
+                    .where(
+                        UploadAPIConfig.channel_id == channel_id,
+                        UploadAPIConfig.is_active == 1,
+                    )
+                    .order_by(UploadAPIConfig.created_at.desc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        return {
+            "status": "success",
+            "data": [UploadAPIConfigRepository._serialize(r) for r in rows],
+        }
+
+    @staticmethod
+    async def update(db: AsyncSession, id: int, payload: dict):
         try:
             stmt = (
-                select(UploadAPIConfig)
-                .where(UploadAPIConfig.channel_id == channel_id)
-                .order_by(UploadAPIConfig.created_at.desc())
+                update(UploadAPIConfig)
+                .where(UploadAPIConfig.id == id)
+                .values(**payload)
+                .execution_options(synchronize_session="fetch")
             )
+            await db.execute(stmt)
+            await db.commit()
 
-            result = await db.execute(stmt)
-            configs = result.scalars().all()
-
-            data = [
-                {
-                    "id": cfg.id,
-                    "channel_id": cfg.channel_id,
-                    "api_name": cfg.api_name,
-                    "method": cfg.method,
-                    "base_url": cfg.base_url,
-                    "responce_formate": cfg.responce_formate,
-                    "auth_type": cfg.auth_type,
-                    "auth_token": cfg.auth_token,
-                    "api_time_out": cfg.api_time_out,
-                    "max_try": cfg.max_try,
-                    "created_at": cfg.created_at,
-                    "version_number": cfg.version_number,
-                }
-                for cfg in configs
-            ]
-
-            return {
-                "status": "success",
-                "data": data,
-            }
+            return await UploadAPIConfigRepository.get_by_id(db, id)
 
         except Exception as e:
             await db.rollback()
-            print(
-                "UploadAPIConfigRepository.getUploadAPIConfigByChannelId error:",
-                str(e),
-            )
-            return {
-                "status": "error",
-                "message": "Failed to fetch upload API configs by channel",
-                "error": str(e),
-            }
+            return {"status": "error", "message": str(e)}
+
+    @staticmethod
+    async def disable(db: AsyncSession, id: int):
+        return await UploadAPIConfigRepository.update(db, id, {"is_active": 0})
+
+    @staticmethod
+    async def enable(db: AsyncSession, id: int):
+        return await UploadAPIConfigRepository.update(db, id, {"is_active": 1})
+
+    @staticmethod
+    def _serialize(cfg: UploadAPIConfig) -> dict:
+        return {
+            "id": cfg.id,
+            "channel_id": cfg.channel_id,
+            "api_name": cfg.api_name,
+            "method": cfg.method,
+            "base_url": cfg.base_url,
+            "response_format": cfg.response_format,
+            "auth_type": cfg.auth_type,
+            "auth_token": cfg.auth_token,
+            "api_time_out": cfg.api_time_out,
+            "max_try": cfg.max_try,
+            "is_active": cfg.is_active,
+            "created_at": cfg.created_at,
+            "updated_at": cfg.updated_at,
+            "version_number": cfg.version_number,
+        }

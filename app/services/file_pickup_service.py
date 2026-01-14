@@ -4,6 +4,8 @@ file_pickup_service.py
 
 Picks files from external locations (LOCAL / HTTP / FTP),
 runs detect-source on them, then uploads using upload logic.
+
+Called ONLY by scheduler execution.
 """
 
 import os
@@ -21,12 +23,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 @dataclass
 class UploadApiConfig:
-    id: int
+    id: int  # UploadAPIConfig.id
     channel_id: int
     api_name: str
     method: str  # LOCAL | HTTP | FTP
     base_url: str
-    response_formate: str
     auth_type: str  # NONE | BASIC | BEARER | API_KEY | JWT
     auth_token: Optional[str]
     api_time_out: int
@@ -54,6 +55,15 @@ class AuthHandler:
 
 
 class FilePickupService:
+    """
+    Responsibilities:
+    - Fetch file bytes
+    - Build UploadFile correctly
+    - Call detect-source
+    - Rewind file
+    - Call UploadService.fileUpload(...)
+    """
+
     def __init__(self, upload_service, db: AsyncSession):
         if isinstance(upload_service, type) or not hasattr(
             upload_service, "fileUpload"
@@ -65,14 +75,20 @@ class FilePickupService:
         self.auth = AuthHandler()
 
     async def pickup(self, config: UploadApiConfig):
-        print(f"\n=== FILE PICKUP START: {config.api_name} ===")
+        """
+        Called by scheduler runner.
+        """
+        print(f"\n=== FILE PICKUP START: {config.api_name} (API ID={config.id}) ===")
 
         if config.method == "LOCAL":
             await self._pickup_local(config)
+
         elif config.method == "HTTP":
             await self._pickup_http(config)
+
         elif config.method == "FTP":
             await self._pickup_ftp(config)
+
         else:
             raise ValueError(f"Unsupported pickup method: {config.method}")
 
@@ -82,10 +98,11 @@ class FilePickupService:
         """
         1. Detect source
         2. Rewind file
-        3. Upload using existing upload logic
+        3. Upload via UploadService
         """
         from app.api.v1.routers.reconciliation import detect_source
 
+        # Detect source (consumes file stream)
         detection = await detect_source(upload_file, self.db)
 
         if detection.get("status") != "success":
@@ -102,6 +119,7 @@ class FilePickupService:
         # Rewind after detect-source
         await upload_file.seek(0)
 
+        # Delegate to real upload logic
         await self.upload_service.fileUpload(
             upload_file,
             channel["id"],
@@ -112,7 +130,7 @@ class FilePickupService:
     @staticmethod
     def _build_upload_file(filename: str, content: bytes) -> UploadFile:
         """
-        Correct way to construct UploadFile programmatically
+        Correct way to construct UploadFile programmatically.
         """
         tmp = SpooledTemporaryFile()
         tmp.write(content)
@@ -126,6 +144,7 @@ class FilePickupService:
 
         for name in sorted(os.listdir(config.base_url)):
             path = os.path.join(config.base_url, name)
+
             if not os.path.isfile(path):
                 continue
 
@@ -162,7 +181,7 @@ class FilePickupService:
         if parsed.scheme != "ftp":
             raise ValueError("FTP base_url must start with ftp://")
 
-        if config.auth_type == "BASIC":
+        if config.auth_type == "BASIC" and config.auth_token:
             user, password = config.auth_token.split(":", 1)
         else:
             user, password = "anonymous", ""
@@ -179,5 +198,6 @@ class FilePickupService:
 
                 upload_file = self._build_upload_file(name, bytes(buf))
                 await self._process_file(upload_file)
+
         finally:
             ftp.quit()

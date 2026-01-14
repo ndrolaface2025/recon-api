@@ -209,6 +209,9 @@ def process_upload_batch(
     queue="scheduler",
 )
 def run_scheduler_tick():
+    """
+    Entry point for scheduler worker.
+    """
     loop = get_or_create_event_loop()
     loop.run_until_complete(_run())
 
@@ -219,56 +222,54 @@ async def _run():
         UploadSchedulerConfigService,
     )
     from app.services.upload_api_config_service import UploadAPIConfigService
-    from app.services.file_pickup_service import FilePickupService
+    from app.services.file_pickup_service import FilePickupService, UploadApiConfig
     from app.services.upload_service import UploadService
-    from app.services.file_pickup_service import UploadApiConfig
 
     now = datetime.utcnow()
 
     async with AsyncSessionLocal() as db:
         scheduler_service = UploadSchedulerConfigService(db)
         upload_api_service = UploadAPIConfigService(db)
+
         upload_service = UploadService(db)
         pickup_service = FilePickupService(upload_service, db)
 
-        # pickup_service = FilePickupService(UploadService, db)
-
         schedulers = (
-            (await scheduler_service.get_scheduler_list())
+            (await scheduler_service.get_all(filters={"is_active": 1}))
             .get("result", {})
             .get("data", [])
         )
 
         for scheduler in schedulers:
-            if not croniter.match(scheduler["schedular_time"], now):
+            cron_expr = scheduler["cron_expression"]
+            timezone = scheduler.get("timezone", "UTC")
+
+            if not croniter.match(cron_expr, now):
                 continue
 
-            channel_id = scheduler["channel_id"]
+            upload_api_id = scheduler["upload_api_id"]
 
-            api_cfgs = (
-                (
-                    await upload_api_service.get_upload_api_config_by_channel_id(
-                        channel_id
-                    )
-                )
-                .get("result", {})
-                .get("data", [])
+            api_result = await upload_api_service.get_by_id(upload_api_id)
+            api_cfg = api_result.get("result", {}).get("data")
+
+            if not api_cfg or api_cfg.get("is_active") != 1:
+                continue
+
+            print(
+                f"\n▶ Scheduler fired: {scheduler['scheduler_name']} "
+                f"(upload_api_id={upload_api_id})"
             )
 
-            print("\n api_cfgs: ", api_cfgs)
-
-            for cfg in api_cfgs:
-                await pickup_service.pickup(
-                    UploadApiConfig(
-                        id=cfg["id"],
-                        channel_id=cfg["channel_id"],
-                        api_name=cfg["api_name"],
-                        method=cfg["method"],
-                        base_url=cfg["base_url"],
-                        response_formate=cfg["responce_formate"],
-                        auth_type=cfg["auth_type"],
-                        auth_token=cfg.get("auth_token"),
-                        api_time_out=int(cfg.get("api_time_out", 30)),
-                        max_try=int(cfg.get("max_try", 1)),
-                    )
+            await pickup_service.pickup(
+                UploadApiConfig(
+                    id=api_cfg["id"],
+                    channel_id=api_cfg["channel_id"],
+                    api_name=api_cfg["api_name"],
+                    method=api_cfg["method"],
+                    base_url=api_cfg["base_url"],
+                    auth_type=api_cfg["auth_type"],
+                    auth_token=api_cfg.get("auth_token"),
+                    api_time_out=int(api_cfg.get("api_time_out", 30)),
+                    max_try=int(api_cfg.get("max_try", 1)),
                 )
+            )

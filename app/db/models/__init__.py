@@ -8,22 +8,22 @@ from .transactions import Transaction
 from .logs_audit import AuditLog
 from .logs_system import SystemLog
 from .upload_api_config import UploadAPIConfig
-from .upload_schedulars_config import UploadSchedulerConfig
+from .upload_scheduler_config import UploadSchedulerConfig
 from .matching_rule_config import MatchingRuleConfig
 from .system_batch_config import SystemBatchConfig
 
 __all__ = [
-    'ModuleConfig',
-    'RoleConfig',
-    'UserConfig',
-    'SourceConfig',
-    'ChannelConfig',
-    'UploadFile',
-    'Transaction',
-    'AuditLog',
-    'SystemLog',
-    'UploadAPIConfig',
-    'UploadSchedulerConfig',
-    'MatchingRuleConfig',
-    'SystemBatchConfig'
+    "ModuleConfig",
+    "RoleConfig",
+    "UserConfig",
+    "SourceConfig",
+    "ChannelConfig",
+    "UploadFile",
+    "Transaction",
+    "AuditLog",
+    "SystemLog",
+    "UploadAPIConfig",
+    "UploadSchedulerConfig",
+    "MatchingRuleConfig",
+    "SystemBatchConfig",
 ]

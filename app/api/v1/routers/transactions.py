@@ -85,27 +85,35 @@ async def get_transactions(
         if conditions:
             query = query.where(and_(*conditions))
         
-        # Get total count for pagination
-        count_query = select(func.count()).select_from(Transaction)
-        if conditions:
-            count_query = count_query.where(and_(*conditions))
-        
-        total_result = await db.execute(count_query)
-        total_records = total_result.scalar()
-        
         # Apply sorting
         if sort_order.lower() == "desc":
             query = query.order_by(getattr(Transaction, sort_by).desc())
         else:
             query = query.order_by(getattr(Transaction, sort_by).asc())
         
-        # Apply pagination
-        offset = (page - 1) * page_size
-        query = query.limit(page_size).offset(offset)
-        
-        # Execute query
-        result = await db.execute(query)
-        rows = result.all()
+        # For matched/partial status: Fetch ALL matching records (no pagination yet)
+        # We'll group them first, then paginate the groups to avoid splitting matched sets
+        if match_status and match_status.lower() in ["matched", "partial"]:
+            # Fetch all matching transactions without pagination
+            result = await db.execute(query)
+            rows = result.all()
+        else:
+            # For unmatched: Use normal pagination on individual transactions
+            # Get total count for pagination
+            count_query = select(func.count()).select_from(Transaction)
+            if conditions:
+                count_query = count_query.where(and_(*conditions))
+            
+            total_result = await db.execute(count_query)
+            total_records = total_result.scalar()
+            
+            # Apply pagination
+            offset = (page - 1) * page_size
+            query = query.limit(page_size).offset(offset)
+            
+            # Execute query
+            result = await db.execute(query)
+            rows = result.all()
         
         # Helper function to create transaction dict
         def create_transaction_dict(txn, channel_name, source_name, match_rule_name):
@@ -129,7 +137,6 @@ async def get_transactions(
                 "date": txn.date,
                 "account_number": txn.account_number,
                 "currency": txn.ccy,
-                "otherDetails": txn.otherDetails,
                 "match_status": txn.match_status,
                 "match_status_label": match_status_label,
                 "match_rule_id": txn.match_rule_id,
@@ -147,7 +154,7 @@ async def get_transactions(
         
         # Group transactions by recon_reference_number for matched/partial
         if match_status and match_status.lower() in ["matched", "partial"]:
-            # Group by reference_number (primary grouping key for matching)
+            # Group by recon_reference_number (this groups all matched sources together)
             grouped = {}
             for row in rows:
                 txn = row[0]
@@ -155,8 +162,19 @@ async def get_transactions(
                 source_name = row[2]
                 match_rule_name = row[3]
                 
-                # Group by reference_number to keep matched transactions together
-                group_key = txn.reference_number if txn.reference_number else f"txn_{txn.id}"
+                # Grouping logic:
+                # - For FULL matches (status=1): Group by recon_reference_number
+                # - For PARTIAL matches (status=2): Group by reference_number (RRN)
+                # This ensures all sources with the same RRN are grouped together
+                if txn.match_status == 1 and txn.recon_reference_number:
+                    # Full match: Use recon_reference_number
+                    group_key = txn.recon_reference_number
+                elif txn.match_status == 2 and txn.reference_number:
+                    # Partial match: Use reference_number (RRN) with a prefix to avoid collisions
+                    group_key = f"partial_{txn.reference_number}"
+                else:
+                    # Fallback: Individual transaction
+                    group_key = f"txn_{txn.id}"
                 
                 if group_key not in grouped:
                     grouped[group_key] = {
@@ -191,7 +209,8 @@ async def get_transactions(
                 elif "platform" in source_key:
                     grouped[group_key]["platform_transactions"].append(txn_dict)
             
-            # Convert grouped data to list
+            # Convert grouped data to list (all groups)
+            all_groups = []
             for group_key, group_data in grouped.items():
                 # Only include source arrays that have data
                 transaction_group = {}
@@ -213,7 +232,13 @@ async def get_transactions(
                 if group_data["platform_transactions"]:
                     transaction_group["platform_transactions"] = group_data["platform_transactions"]
                 
-                transactions.append(transaction_group)
+                all_groups.append(transaction_group)
+            
+            # NOW paginate the groups (not individual transactions)
+            total_records = len(all_groups)  # Total number of matched groups
+            start_idx = (page - 1) * page_size
+            end_idx = start_idx + page_size
+            transactions = all_groups[start_idx:end_idx]  # Slice the groups
         
         else:
             # For unmatched transactions, return all sources separately

@@ -138,6 +138,7 @@ async def get_transactions(
                 "account_number": txn.account_number,
                 "currency": txn.ccy,
                 "match_status": txn.match_status,
+                "other_details": txn.otherDetails,
                 "match_status_label": match_status_label,
                 "match_rule_id": txn.match_rule_id,
                 "match_rule_name": match_rule_name,

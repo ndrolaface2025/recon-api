@@ -207,18 +207,18 @@ def process_upload_batch(
 
 
 @celery_app.task(
-    name="app.workers.scheduler_tasks.run_scheduler_tick",
-    queue="scheduler",
+    name="app.workers.tasks.file_pickup_scheduler.run",
+    queue="file-pickup-scheduler",
 )
-def run_scheduler_tick():
+def run_file_pickup_scheduler():
     """
-    Entry point for scheduler worker.
+    Evaluates file pickup schedules and dispatches due pickups.
     """
     loop = get_or_create_event_loop()
-    loop.run_until_complete(_run())
+    loop.run_until_complete(evaluate_and_dispatch_file_pickups())
 
 
-async def _run():
+async def evaluate_and_dispatch_file_pickups():
     from app.db.session import AsyncSessionLocal
     from app.services.upload_scheduler_config_service import (
         UploadSchedulerConfigService,

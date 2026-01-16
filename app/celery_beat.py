@@ -3,9 +3,9 @@ from app.celery_app import celery_app
 from celery.schedules import crontab
 
 celery_app.conf.beat_schedule = {
-    "scheduler-tick-every-minute": {
-        "task": "app.workers.scheduler_tasks.run_scheduler_tick",
+    "file-pickup-scheduler-dispatch": {
+        "task": "app.workers.tasks.file_pickup_scheduler.run",
         "schedule": crontab(minute="*"),
-        "options": {"queue": "scheduler"},
+        "options": {"queue": "file-pickup-scheduler"},
     }
 }

@@ -13,6 +13,7 @@ from .GeneralLedgerRoute import router as general_ledger_router
 from .Channel import router as channel_router
 from .upload_api_config import router as upload_api_config
 from .upload_scheduler_config import router as upload_scheduler_config
+from .search import router as search_router
 
 all_routers = [
     # reconciliation_router,
@@ -30,4 +31,5 @@ all_routers = [
     channel_router,
     upload_api_config,
     upload_scheduler_config,
+    search_router,
 ]

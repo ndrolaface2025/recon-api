@@ -99,7 +99,7 @@ async def update_matching_rule(
     return updated_rule
 
 
-@router.delete("/{rule_id}", status_code=204)
+@router.delete("/{rule_id}", status_code=200)
 async def delete_matching_rule(
     rule_id: int,
     db: AsyncSession = Depends(get_db)
@@ -112,7 +112,7 @@ async def delete_matching_rule(
     deleted = await MatchingRuleRepository.delete(db, rule_id)
     if not deleted:
         raise HTTPException(status_code=404, detail=f"Matching rule with ID {rule_id} not found")
-    return None
+    return HTTPException(status_code=200, detail=f"The matching rule has been deleted successfully")
 
 
 @router.get("/channel/{channel_id}", response_model=list[MatchingRuleResponse])

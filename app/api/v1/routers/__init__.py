@@ -14,6 +14,7 @@ from .Channel import router as channel_router
 from .upload_api_config import router as upload_api_config
 from .upload_scheduler_config import router as upload_scheduler_config
 from .search import router as search_router
+from .transaction_search import router as transaction_search_router
 
 all_routers = [
     # reconciliation_router,
@@ -32,4 +33,5 @@ all_routers = [
     upload_api_config,
     upload_scheduler_config,
     search_router,
+    transaction_search_router,
 ]

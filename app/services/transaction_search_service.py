@@ -62,30 +62,9 @@ class TransactionSearchService:
         if search_params.date_to:
             filters.append(Transaction.date <= search_params.date_to)
         
-        # Amount range filter (handle string to float conversion)
-        if search_params.amount_min is not None:
-            try:
-                # Try to cast amount column to float for comparison
-                filters.append(
-                    cast(Transaction.amount, Float) >= search_params.amount_min
-                )
-            except Exception:
-                # If cast fails, do string comparison
-                filters.append(
-                    Transaction.amount >= str(search_params.amount_min)
-                )
-        
-        if search_params.amount_max is not None:
-            try:
-                # Try to cast amount column to float for comparison
-                filters.append(
-                    cast(Transaction.amount, Float) <= search_params.amount_max
-                )
-            except Exception:
-                # If cast fails, do string comparison
-                filters.append(
-                    Transaction.amount <= str(search_params.amount_max)
-                )
+        # Amount filter (exact match)
+        if search_params.amount is not None:
+            filters.append(Transaction.amount == search_params.amount)
         
         # Source ID filter
         if search_params.source_id is not None:

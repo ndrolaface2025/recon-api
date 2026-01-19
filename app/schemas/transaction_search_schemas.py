@@ -12,8 +12,7 @@ class TransactionSearchRequest(BaseModel):
     account_number: Optional[str] = Field(None, description="Account number (partial match supported)")
     date_from: Optional[str] = Field(None, description="Start date for date range filter (format: YYYY-MM-DD)")
     date_to: Optional[str] = Field(None, description="End date for date range filter (format: YYYY-MM-DD)")
-    amount_min: Optional[float] = Field(None, description="Minimum amount")
-    amount_max: Optional[float] = Field(None, description="Maximum amount")
+    amount: Optional[str] = Field(None, description="Exact amount to search for")
     source_id: Optional[int] = Field(None, description="Source ID")
     page: int = Field(1, ge=1, description="Page number (starts from 1)")
     page_size: int = Field(20, ge=1, le=100, description="Number of records per page")
@@ -25,8 +24,7 @@ class TransactionSearchRequest(BaseModel):
                 "account_number": "1234567890",
                 "date_from": "2026-01-01",
                 "date_to": "2026-01-31",
-                "amount_min": 1000.0,
-                "amount_max": 5000.0,
+                "amount": "2000",
                 "source_id": 1,
                 "page": 1,
                 "page_size": 20

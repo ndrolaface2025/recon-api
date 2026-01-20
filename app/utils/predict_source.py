@@ -27,6 +27,12 @@ def extract_features(df):
     # If we have ATM indicators + masked PAN, it's ATM not CARD
     has_pure_pan = int(any("pan" in h and "mask" not in h for h in headers))
     
+    # Mobile Money / E-Money indicators
+    has_mobile_number = int(any("mobile" in h and "number" in h or "phone" in h and "number" in h or "customer_mobile" in h for h in headers))
+    has_service_name = int(any("service" in h and "name" in h or "provider" in h or "payer" in h and "client" in h for h in headers))
+    has_payment_mode = int(any("payment" in h and "mode" in h or "channel" in h and "type" in h for h in headers))
+    has_narration = int(any("narration" in h or "description" in h or "message" in h for h in headers))
+    
     return {
         "column_count": len(headers),
         "has_rrn": int(any("rrn" in h for h in headers)),
@@ -46,6 +52,11 @@ def extract_features(df):
         # Enhanced ATM detection
         "has_atm_indicators": has_atm_indicators,
         "has_transaction_type": has_transaction_type,
+        # Mobile Money / E-Money indicators
+        "has_mobile_number": has_mobile_number,
+        "has_service_name": has_service_name,
+        "has_payment_mode": has_payment_mode,
+        "has_narration": has_narration,
     }
 
 # ---- TRAIN MODEL ON STARTUP ----
@@ -55,44 +66,53 @@ def extract_features(df):
 # - POS: POS transactions with merchant details
 # - CARD: Card network settlement files (pure card data, no ATM context)
 # - BANK: Core banking system posted transactions with DR/CR columns
+# - MOBILE_MONEY: E-Money/Mobile Money platform transactions with mobile number, service name, payment mode
 training_data = pd.DataFrame([
     # ATM operational files (customer-facing) - has terminal, RRN, auth, transaction type
     # column_count, has_rrn, has_terminal, has_merchant, has_pan, has_auth, has_balance, has_debit_credit, 
-    # has_mti, has_direction, has_processing_code, has_posted, has_account, has_atm_indicators, has_transaction_type, label
-    [14, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, "ATM"],  # Your ATM file pattern
-    [10, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, "ATM"],
-    [11, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, "ATM"],
-    [12, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, "ATM"],
+    # has_mti, has_direction, has_processing_code, has_posted, has_account, has_atm_indicators, has_transaction_type,
+    # has_mobile_number, has_service_name, has_payment_mode, has_narration, label
+    [14, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, "ATM"],  # Your ATM file pattern
+    [10, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, "ATM"],
+    [11, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, "ATM"],
+    [12, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, "ATM"],
     
     # SWITCH files (raw switch messages) - ATM channel
-    [12, 1, 1, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 0, 0, "SWITCH"],
-    [13, 1, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, "SWITCH"],
-    [14, 1, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, "SWITCH"],
+    [12, 1, 1, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, "SWITCH"],
+    [13, 1, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, "SWITCH"],
+    [14, 1, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, "SWITCH"],
     
     # SWITCH files - POS channel (has merchant indicators)
-    [15, 1, 1, 1, 0, 1, 0, 0, 1, 1, 1, 0, 0, 0, 0, "SWITCH"],
-    [16, 1, 0, 1, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, "SWITCH"],
+    [15, 1, 1, 1, 0, 1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, "SWITCH"],
+    [16, 1, 0, 1, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, "SWITCH"],
     
     # POS transaction files (not switch) - merchant focused
-    [12, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, "POS"],
-    [13, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, "POS"],
-    [11, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "POS"],
+    [12, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "POS"],
+    [13, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "POS"],
+    [11, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "POS"],
     
     # CARD network files - pure card data, NO ATM indicators
-    [20, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, "CARD"],
-    [18, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "CARD"],
-    [15, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, "CARD"],
+    [20, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "CARD"],
+    [18, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "CARD"],
+    [15, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, "CARD"],
     
     # BANK/CBS posted transactions (with DR/CR columns)
-    [8, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, "BANK"],
-    [10, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, "BANK"],
-    [10, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, "BANK"],
-    [12, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, "BANK"],
+    [8, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, "BANK"],
+    [10, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, "BANK"],
+    [10, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, "BANK"],
+    [12, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, "BANK"],
+    
+    # MOBILE_MONEY / E-Money platform files - has mobile number, service name, payment mode
+    [11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, "MOBILE_MONEY"],  # Your E-Money file pattern
+    [10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1, "MOBILE_MONEY"],  # With status
+    [12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1, "MOBILE_MONEY"],  # With account
+    [13, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 1, 1, 1, "MOBILE_MONEY"],  # With posted status
 ], columns=[
     "column_count", "has_rrn", "has_terminal", "has_merchant",
     "has_pan", "has_auth", "has_balance", "has_debit_credit",
     "has_mti", "has_direction", "has_processing_code",
-    "has_posted", "has_account", "has_atm_indicators", "has_transaction_type", "label"
+    "has_posted", "has_account", "has_atm_indicators", "has_transaction_type",
+    "has_mobile_number", "has_service_name", "has_payment_mode", "has_narration", "label"
 ])
 
 X = training_data.drop("label", axis=1)

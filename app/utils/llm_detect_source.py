@@ -49,6 +49,20 @@ def llm_detect_source(headers, sample_rows):
                 - PAN based settlement file
                 - Network specific fields (interchange, scheme codes)
 
+                5. MOBILE_MONEY_PLATFORM_FILE
+                - E-Money/Mobile Money platform transaction file
+                - **KEY INDICATORS**: Mobile Number field (Customer Mobile Number, Phone Number)
+                - **KEY INDICATORS**: Service Name (NFS AIRTEL, NFS MTN, Mobile Money Service)
+                - **KEY INDICATORS**: Payment Mode (ANDROID, USSD, Mobile, Mobile App, USSD Menu)
+                - **KEY INDICATORS**: Payer Client or Provider name
+                - **KEY INDICATORS**: Overall Status or Transaction Status
+                - **KEY INDICATORS**: Receiver Narration or Description with payment details
+                - Contains RRN (Retrieval Reference Number) in narration
+                - May contain actionCode (0000 for success)
+                - Transaction ID, Receipt Number present
+                - Focus is on mobile money/e-wallet transactions
+                - NOT a CBS file (this is from mobile money platform, not core banking)
+
                 CHANNELS (Transaction Type):
                 
                 1. ATM - ATM withdrawals/deposits
@@ -68,11 +82,22 @@ def llm_detect_source(headers, sample_rows):
                    - May contain network-specific fields
                    - Description/Narration mentions: "Card", "Interchange", "Scheme", "Network"
 
+                4. MOBILE_MONEY - Mobile Money/E-Wallet transactions
+                   - Indicators: Mobile Number, Customer Phone Number
+                   - Service Name: NFS AIRTEL, NFS MTN, Mobile Money Service
+                   - Payment Mode: ANDROID, USSD, Mobile, Mobile App
+                   - Provider/Client fields (IZYANE, Airtel Money, MTN Money, etc.)
+                   - Description/Narration mentions: "Mobile", "USSD", "Wallet", "E-Money"
+
                 CHANNEL DETECTION STRATEGY:
-                1. First check column headers for TerminalID, MerchantID, or PAN-related fields
-                2. If unclear from headers, examine Description/Narration/Message fields in sample rows
-                3. Look for keywords: "Terminal/ATM" → ATM, "Merchant/POS" → POS, "Card/Interchange" → CARDS
-                4. If no clear indicators in headers or data, return "UNKNOWN"
+                1. First check column headers for TerminalID, MerchantID, PAN-related fields, or Mobile Number
+                2. If Mobile Number + Service Name + Payment Mode present → MOBILE_MONEY
+                3. If TerminalID present (no mobile fields) → ATM
+                4. If MerchantID present → POS
+                5. If PAN/Card fields dominant → CARDS
+                6. If unclear from headers, examine Description/Narration/Message fields in sample rows
+                7. Look for keywords: "Terminal/ATM" → ATM, "Merchant/POS" → POS, "Card/Interchange" → CARDS, "Mobile/USSD/Wallet" → MOBILE_MONEY
+                8. If no clear indicators in headers or data, return "UNKNOWN"
 
                 CRITICAL RULES:
                 1. If file has Location field AND TransactionType → It's ATM_FILE (operational ATM log)
@@ -80,11 +105,13 @@ def llm_detect_source(headers, sample_rows):
                 3. If file has Source/Destination (routing) but NO Location/TransactionType → It's SWITCH_FILE
                 4. If file has Account_masked AND Location → It's ATM_FILE (even if it has RRN/STAN)
                 5. If file has BOTH switch fields AND posted status → It's CBS_BANK_FILE
-                6. ATM_FILE focuses on customer transactions; SWITCH_FILE focuses on message routing
-                7. SWITCH files can be for ATM, POS, or CARDS - check ProcessingCode, MerchantID, or terminal type
-                8. If TerminalID present + NO MerchantID → likely ATM channel
-                9. If MerchantID or MerchantName present → likely POS channel
-                10. If strong card/PAN focus + interchange/scheme data → likely CARDS channel
+                6. If file has Mobile Number + Service Name + Payment Mode → It's MOBILE_MONEY_PLATFORM_FILE (channel: MOBILE_MONEY)
+                7. ATM_FILE focuses on customer transactions; SWITCH_FILE focuses on message routing
+                8. SWITCH files can be for ATM, POS, or CARDS - check ProcessingCode, MerchantID, or terminal type
+                9. If TerminalID present + NO MerchantID + NO Mobile fields → likely ATM channel
+                10. If MerchantID or MerchantName present → likely POS channel
+                11. If strong card/PAN focus + interchange/scheme data → likely CARDS channel
+                12. If Mobile Number + Payment Mode (USSD/ANDROID/Mobile) → definitely MOBILE_MONEY channel
 
                 Input file signals:
                 Headers: {headers}
@@ -94,13 +121,14 @@ def llm_detect_source(headers, sample_rows):
                 - Choose the MOST LIKELY source type based on column headers and data patterns
                 - Identify the channel by checking BOTH column headers AND sample data content
                 - For CBS files: Examine Description/Narration fields for channel keywords
+                - For Mobile Money: Look for Mobile Number, Service Name, Payment Mode combinations
                 - If multiple match, explain why one is preferred
                 - Do NOT guess randomly - use "UNKNOWN" if truly ambiguous
 
                 Respond ONLY in JSON:
                 {{
-                "source": "ATM_FILE | SWITCH_FILE | CBS_BANK_FILE | CARD_NETWORK_FILE",
-                "channel": "ATM | POS | CARDS | UNKNOWN",
+                "source": "ATM_FILE | SWITCH_FILE | CBS_BANK_FILE | CARD_NETWORK_FILE | MOBILE_MONEY_PLATFORM_FILE",
+                "channel": "ATM | POS | CARDS | MOBILE_MONEY | UNKNOWN",
                 "reason": "short explanation of both source and channel"
                 }}
 """

@@ -1,7 +1,6 @@
 # Recon Backend - Enterprise Scaffold
 
-Production-ready FastAPI boilerplate for channel/source-aware reconciliation.
----
+## Production-ready FastAPI boilerplate for channel/source-aware reconciliation.
 
 ## 🚀 Quick Start (Docker)
 
@@ -29,7 +28,7 @@ docker compose up --build
 
 ### Installation
 
-```bash
+````bash
 # 1. Create virtual environment
 python -m venv venv
 
@@ -66,7 +65,7 @@ alembic upgrade head
 
 # Rollback last migration (if needed)
 alembic downgrade -1
-```
+````
 
 ### Windows PowerShell Migration
 
@@ -147,12 +146,34 @@ celery -A app.celery_app worker --loglevel=info --concurrency=4
 
 Open **another terminal** for monitoring:
 
-```bash
+````bash
 # Install flower (if not already installed)
 pip install flower
 
 # Start Flower dashboard
 celery -A app.celery_app flower --port=5555
 
+## Running File Pickup Scheduler Components
 
+### File Pickup Scheduler Worker
 
+Executes file pickup scheduling tasks.
+Bound **only** to the `file-pickup-scheduler` queue to keep execution isolated and predictable.
+
+```bash
+celery -A app.celery_app:celery_app \
+  worker \
+  --loglevel=info \
+  --pool=solo \
+  --queues=file-pickup-scheduler \
+  --hostname=file-pickup-scheduler@%h
+````
+
+### Run Celery Beat (Every Minute) for File Picker
+
+Celery Beat is used to emit scheduled events for the file picker.  
+The beat schedule is configured to trigger **every minute**.
+
+```bash
+celery -A app.celery_app.celery_app beat -l info
+```

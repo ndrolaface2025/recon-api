@@ -25,26 +25,30 @@ class EnsureCORSMiddleware(BaseHTTPMiddleware):
                     "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
                     "Access-Control-Allow-Headers": "*",
                     "Access-Control-Allow-Credentials": "true",
-                }
+                },
             )
-        
+
         response = await call_next(request)
-        
+
         # Ensure CORS headers are present on all responses
         origin = request.headers.get("origin", "")
         allowed_origins = [
             "http://localhost:5173",
             "http://localhost:3000",
             "https://ai-recon.vercel.app",
-            "https://rolatax.rolaface.com",
+            "https://api.recon.rolaface.com",  # Production backend (for same-origin requests)
+            "https://recon.rolaface.com",  # Production frontned
+            "https://staging.recon.rolaface.com",  # Staging frontned
         ]
-        
+
         if origin in allowed_origins:
             response.headers["Access-Control-Allow-Origin"] = origin
             response.headers["Access-Control-Allow-Credentials"] = "true"
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+            response.headers["Access-Control-Allow-Methods"] = (
+                "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+            )
             response.headers["Access-Control-Allow-Headers"] = "*"
-        
+
         return response
 
 
@@ -78,8 +82,10 @@ def create_app() -> FastAPI:
         allow_origins=[
             "http://localhost:5173",
             "http://localhost:3000",
-            "https://ai-recon.vercel.app",  # Production frontend
-            "https://rolatax.rolaface.com",  # Production backend (for same-origin requests)
+            "https://ai-recon.vercel.app",
+            "https://api.recon.rolaface.com",  # Production backend (for same-origin requests)
+            "https://recon.rolaface.com",  # Production frontned
+            "https://staging.recon.rolaface.com",  # Staging frontned
         ],
         allow_credentials=True,
         allow_methods=["*"],

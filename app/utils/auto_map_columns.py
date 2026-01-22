@@ -3,7 +3,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 
 CANONICAL_FIELDS = {
-    "transaction_id": ["txn_id", "transaction_no", "transaction_id", "txnid"],
+    "transaction_id": ["txn_id", "transaction_no", "transaction_id", "txnid", "reference_number"],
     "reference_number": ["rrn", "RRN", "reference", "retrieval_reference", "ref_number", "retrieval_ref"],
     "terminal_id": ["terminal_id", "atm_id", "term_id", "terminalid", "TerminalID"],
     "merchant_id": ["merchant_id", "mid", "merchantid"],

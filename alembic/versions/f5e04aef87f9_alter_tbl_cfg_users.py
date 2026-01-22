@@ -15,6 +15,8 @@ def upgrade():
     #     type_="foreignkey"
     # )
 
+    op.drop_constraint('tbl_cfg_users_role_fkey', 'tbl_cfg_users', type_='foreignkey')
+
     # gender: Boolean → String
     op.alter_column(
         "tbl_cfg_users",
@@ -82,3 +84,10 @@ def downgrade():
     #     ["role"],
     #     ["id"]
     # )
+
+     # Recreate the original foreign key
+    op.create_foreign_key(
+        'tbl_cfg_users_role_fkey',
+        'tbl_cfg_users', 'tbl_cfg_roles',  # adjust table name
+        ['role'], ['id']
+    )

@@ -1,13 +1,16 @@
 # app/utils/jwt_utils.py
 from datetime import datetime, timedelta
+import os
 from typing import Optional
+from dotenv import load_dotenv
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+load_dotenv()
 
 # Configuration
-SECRET_KEY = "hR0Qx3K0cYxq9A2m8F0L5vN2S1bE9ZxWJ8yK7P0aC6dQmT5A4nR"  # Change this!
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_HOURS = 24  # 24 hours default
+SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+ALGORITHM = os.getenv("JWT_ALGORITHM")
+ACCESS_TOKEN_EXPIRE_HOURS = int(os.getenv("JWT_EXPIRE_HOURS"))
 
 # For different expiry times, you can change this value:
 # ACCESS_TOKEN_EXPIRE_HOURS = 1   # 1 hour

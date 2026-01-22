@@ -16,7 +16,9 @@ class Transaction(Base):
     account_number = Column(String(50), nullable=True)
     ccy = Column(String(10), nullable=True)
     otherDetails = Column("otherDetails", Text, nullable=True)  # Explicitly quoted to match DB column case
+    recon_group_number = Column(String(255), nullable=True)
     file_transactions_id = Column(BigInteger, ForeignKey("tbl_upload_files.id"), nullable=True)
+    network_id = Column(BigInteger, ForeignKey("tbl_cfg_networks.id"), nullable=True)
     reconciled_status = Column(Boolean, nullable=True)
     reconciled_mode = Column(Boolean, nullable=True)
     reconciled_by = Column(BigInteger, ForeignKey("tbl_cfg_users.id"), nullable=True)

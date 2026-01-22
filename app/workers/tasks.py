@@ -105,6 +105,10 @@ def process_upload_batch(
                     print(
                         f"Normalized data for batch {batch_number}... with {len(batch_data)} records and data sample: {batch_data[0] if batch_data else 'No records'}"
                     )
+                    
+                    # DEBUG: Log column_mappings
+                    print(f"[CELERY TASK DEBUG] column_mappings received: {column_mappings}")
+                    
                     df = pd.DataFrame(batch_data)
 
                     # Normalize columns first (converts to lowercase)
@@ -140,6 +144,10 @@ def process_upload_batch(
                     print(
                         f"Normalized batch {batch_number}, first record: {normalized_batch_data[0] if normalized_batch_data else 'No records'}"
                     )
+                    
+                    # DEBUG: Show normalized column names
+                    if normalized_batch_data:
+                        print(f"[CELERY TASK DEBUG] Normalized columns: {list(normalized_batch_data[0].keys())}")
 
                     # Process the batch with bulk duplicate detection
                     result = await UploadRepository.saveFileDetailsBatch(

@@ -11,6 +11,7 @@ from .upload_api_config import UploadAPIConfig
 from .upload_scheduler_config import UploadSchedulerConfig
 from .matching_rule_config import MatchingRuleConfig
 from .system_batch_config import SystemBatchConfig
+from .network import Network
 
 __all__ = [
     "ModuleConfig",
@@ -26,4 +27,5 @@ __all__ = [
     "UploadSchedulerConfig",
     "MatchingRuleConfig",
     "SystemBatchConfig",
+    "Network"
 ]

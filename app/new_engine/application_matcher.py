@@ -821,6 +821,16 @@ class ApplicationMatcher:
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         rand = random.randint(1000, 9999)
         return f"REF-{timestamp}-{rand}"
+
+    def generate_recon_run_group(self, prefix="RECON"):
+        import uuid
+        """
+        Generates a unique recon run group value for a single run.
+        Example: RECON_20260122_103045_8f3c2a
+        """
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        unique_id = uuid.uuid4().hex[:6]
+        return f"{prefix}_{timestamp}_{unique_id}"
     
     async def _update_matched_transactions(
         self,
@@ -839,6 +849,7 @@ class ApplicationMatcher:
             match_type: Overall match type (FULL/PARTIAL)
             total_sources: Total number of sources in the rule (for dynamic match_status)
         """
+        recon_group_number = self.generate_recon_run_group()
         all_txn_ids = []
         
         for group in matched_groups:
@@ -881,6 +892,7 @@ class ApplicationMatcher:
                     recon_reference_number = :recon_reference_number,
                     match_rule_id = :rule_id,
                     match_conditon = :match_condition,
+                    recon_group_number = :recon_group_number,
                     updated_at = NOW()
                 WHERE id = ANY(:txn_ids)
             """
@@ -893,6 +905,7 @@ class ApplicationMatcher:
                     "recon_reference_number": recon_reference_number,
                     "rule_id": rule_id,
                     "match_condition": match_condition,
+                    "recon_group_number": recon_group_number,
                     "txn_ids": txn_ids
                 }
             )

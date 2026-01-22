@@ -105,6 +105,26 @@ class UploadService:
             getAcountNumberColumnName = self.get_mapped_to_by_channel_column(required_mappings, "account_number")
             getCurrencyColumnName = self.get_mapped_to_by_channel_column(required_mappings, "currency")
             
+            # Optional fields - check all mappings (not just required ones)
+            # For reference_number: Check both "reference_number" AND "transaction_id" channel_columns
+            # because auto-mapper might map "Transaction ID" to channel_column="transaction_id"
+            getReferenceNumberColumnName = (
+                self.get_mapped_to_by_channel_column(mappings, "reference_number") or
+                self.get_mapped_to_by_channel_column(mappings, "transaction_id")
+            )
+            
+            # For txn_id: Check receipt_number, stan, or other secondary IDs
+            # (Don't check transaction_id since that goes to reference_number)
+            getTransactionIdColumnName = (
+                self.get_mapped_to_by_channel_column(mappings, "receipt_number") or
+                self.get_mapped_to_by_channel_column(mappings, "stan") or
+                self.get_mapped_to_by_channel_column(mappings, "txn_id")
+            )
+            
+            print(f"[UPLOAD SERVICE DEBUG] Optional field mappings:")
+            print(f"  reference_number: {getReferenceNumberColumnName}")
+            print(f"  transaction_id: {getTransactionIdColumnName}")
+            
             # Always process files with Celery jobs (no direct upload)
             # This ensures consistent processing, better tracking, and scalability
             result = await self.uploadWithCelery(
@@ -118,7 +138,9 @@ class UploadService:
                     "date": getDateTimeColumnName,
                     "amount": getAmountColumnName,
                     "account_number": getAcountNumberColumnName,
-                    "currency": getCurrencyColumnName
+                    "currency": getCurrencyColumnName,
+                    "reference_number": getReferenceNumberColumnName,
+                    "transaction_id": getTransactionIdColumnName
                 }
             )
             return result

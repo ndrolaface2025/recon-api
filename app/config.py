@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     S3_ENDPOINT: Optional[AnyUrl] = None
     S3_BUCKET: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None  # Add OpenAI API key for LLM detection
+    JWT_SECRET_KEY: str
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRE_HOURS: int = 24
     
     # Celery Configuration
     CELERY_BROKER_URL: str = "redis://localhost:6379/0"

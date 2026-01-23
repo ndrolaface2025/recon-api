@@ -4,8 +4,9 @@ from app.db.session import get_db
 from app.services.txnJournalEntryService import TxnJournalEntryService
 from app.services.transactionService import TransactionService
 from app.services.manualTransactionService import ManualTransactionService
-from typing import List
 from fastapi import HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import Query
 
 router = APIRouter(prefix="/api/v1")
 txnJournalEntryService = TxnJournalEntryService()
@@ -72,3 +73,16 @@ async def create_journal_entries(
     except Exception as e:
         await db.rollback()
         raise HTTPException(500, str(e))
+    
+
+@router.get("/journal-entries")
+async def get_all_journal_entries(
+    offset: int = Query(0, ge=0),
+    limit: int = Query(10, ge=1),
+    db: AsyncSession = Depends(get_db),
+):
+    return await TxnJournalEntryService.get_all_journal_entries(
+        db=db,
+        offset=offset,
+        limit=limit,
+    )

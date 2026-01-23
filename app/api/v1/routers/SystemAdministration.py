@@ -114,9 +114,12 @@ async def Save_role(
 
 @router.get("/user")
 async def Get_user_List(
+    offset: int = 0,
+    limit: int = 10,
+    search: str = None,
     service: SystemAdministrationService = Depends(get_service(SystemAdministrationService))
 ):
-    return await service.get_user_List()
+    return await service.get_user_List(offset=offset, limit=limit, search=search)
 
 
 @router.put("/user/{update_id}")

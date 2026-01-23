@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import any_, select
+from sqlalchemy import any_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 from app.db.models.module_config import ModuleConfig
@@ -8,6 +8,7 @@ from app.db.models.user_config import UserConfig
 
 from sqlalchemy import select, func, cast, BigInteger
 from sqlalchemy.dialects.postgresql import ARRAY
+from app.utils.encryption import decrypt_password
 from app.utils.jwt_utils import get_password_hash
 
 class SystemAdministrationRepository:
@@ -150,6 +151,9 @@ class SystemAdministrationRepository:
 
     @staticmethod
     async def save_user(db: AsyncSession, payload: dict):
+        decrypted_password = decrypt_password(payload["password"])
+        hashed_password = get_password_hash(decrypted_password)
+        print('hashed_password',hashed_password)
         new_record = UserConfig(
             f_name=payload["f_name"],
             m_name=payload["m_name"],
@@ -166,7 +170,7 @@ class SystemAdministrationRepository:
             version_number=payload.get("version_number"),
             username=payload.get("username"),
             created_at = datetime.utcnow(),
-            password=get_password_hash("1234")
+            password= hashed_password
         )
         db.add(new_record)
         await db.commit()
@@ -174,28 +178,57 @@ class SystemAdministrationRepository:
         return new_record
     
     @staticmethod
-    async def get_user_List(db: AsyncSession):
+    async def get_user_List(db: AsyncSession, offset: int = 0, limit: int = 10, search: str = None):
+        # Base query
         stmt = (
-    select(UserConfig, RoleConfig)
-    .outerjoin(
-        RoleConfig,
-        RoleConfig.id == func.any(
-            cast(
-                func.string_to_array(
-                    func.replace(
-                        func.replace(UserConfig.role, '[', ''),
-                        ']', ''
-                    ),
-                    ','
-                ),
-                ARRAY(BigInteger)
+            select(UserConfig, RoleConfig)
+            .outerjoin(
+                RoleConfig,
+                RoleConfig.id == func.any(
+                    cast(
+                        func.string_to_array(
+                            func.replace(
+                                func.replace(UserConfig.role, '[', ''),
+                                ']', ''
+                            ),
+                            ','
+                        ),
+                        ARRAY(BigInteger)
+                    )
+                )
             )
         )
-    )
-)
-
+        
+        # Search filter - agar search keyword hai to apply karo
+        if search:
+            search_filter = or_(
+                UserConfig.f_name.ilike(f"%{search}%"),
+                UserConfig.m_name.ilike(f"%{search}%"),
+                UserConfig.l_name.ilike(f"%{search}%"),
+                UserConfig.email.ilike(f"%{search}%"),
+                UserConfig.phone.ilike(f"%{search}%")
+            )
+            stmt = stmt.where(search_filter)
+        
+        # Count total records (before pagination)
+        count_stmt = (
+            select(func.count(func.distinct(UserConfig.id)))
+            .select_from(UserConfig)
+        )
+        
+        if search:
+            count_stmt = count_stmt.where(search_filter)
+        
+        total_result = await db.execute(count_stmt)
+        total = total_result.scalar()
+        
+        # Apply pagination
+        stmt = stmt.offset(offset).limit(limit)
+        
         result = await db.execute(stmt)
-        return result.all()
+        rows = result.all()
+        
+        return rows, total
     
 
     @staticmethod
@@ -242,6 +275,13 @@ class SystemAdministrationRepository:
         if "username" in payload:
             record.username = payload["username"]
             record.version_number = record.version_number + 1
+
+        if "password" in payload:
+            decrypted_password = decrypt_password(payload["password"])
+            hashed_password = get_password_hash(decrypted_password)
+            print('decrypted_password',decrypted_password)
+            print('hashed_password',hashed_password)
+            record.password = hashed_password
 
         record.updated_at = datetime.utcnow()
 

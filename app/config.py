@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     JWT_SECRET_KEY: str
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_HOURS: int = 24
+    ENCRYPTION_KEY:str
     
     # Celery Configuration
     CELERY_BROKER_URL: str = "redis://localhost:6379/0"

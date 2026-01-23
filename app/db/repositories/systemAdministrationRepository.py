@@ -315,3 +315,42 @@ class SystemAdministrationRepository:
         stmt = select(UserConfig.id).where(UserConfig.username == username)
         result = await db.execute(stmt)
         return result.scalar() is not None
+    
+    @staticmethod
+    async def get_user_By_id(db: AsyncSession, id: int = 0):
+        # Base query
+        stmt = (
+            select(UserConfig, RoleConfig).
+            where( UserConfig.id == id )
+            .outerjoin(
+                RoleConfig,
+                RoleConfig.id == func.any(
+                    cast(
+                        func.string_to_array(
+                            func.replace(
+                                func.replace(UserConfig.role, '[', ''),
+                                ']', ''
+                            ),
+                            ','
+                        ),
+                        ARRAY(BigInteger)
+                    )
+                )
+            )
+        )
+        
+        # Search filter - agar search keyword hai to apply karo
+        
+        # Count total records (before pagination)
+        count_stmt = (
+            select(func.count(func.distinct(UserConfig.id)))
+            .select_from(UserConfig)
+        )
+        
+        total_result = await db.execute(count_stmt)
+        total = total_result.scalar()
+        
+        result = await db.execute(stmt)
+        rows = result.all()
+        
+        return rows, total

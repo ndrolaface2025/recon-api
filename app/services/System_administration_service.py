@@ -197,3 +197,56 @@ class SystemAdministrationService:
             "exists": exists,
             "message": "Username already exists" if exists else "Username is available"
         }
+    
+    async def get_user_By_id(self, id: int = 0):
+        rows, total = await SystemAdministrationRepository.get_user_By_id(
+            self.db, 
+            id=id
+        )
+        
+        if not rows:
+            return {
+                "status": "error",
+                "errors": False,
+                "message": "No user data available",
+                "data": []
+            }
+        
+        users_map = defaultdict(lambda: {
+            "roles": []
+        })
+
+        for user, role in rows:
+            # Create user once
+            if user.id not in users_map:
+                users_map[user.id].update({
+                    "id": user.id,
+                    "f_name": user.f_name,
+                    "m_name": user.m_name,
+                    "l_name": user.l_name,
+                    "gender": user.gender,
+                    "phone": user.phone,
+                    "password": user.password,
+                    "username": user.username,
+                    "version_number": user.version_number,
+                    "email": user.email,
+                    "status": user.status,
+                    "birth_date": user.birth_date.date() if user.birth_date else None,
+                    "user_roles": user.role,
+                })
+
+            # Append roles (many-to-one)
+            if role:
+                users_map[user.id]["roles"].append({
+                    "id": role.id,
+                    "name": role.name
+                })
+
+        return {
+            "status": "success",
+            "errors": False,
+            "message": "User loaded successfully.",
+            "data": list(users_map.values()),
+        }
+    
+    

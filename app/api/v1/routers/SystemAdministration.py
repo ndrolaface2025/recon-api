@@ -174,3 +174,10 @@ async def check_username(
     ),
 ):
     return await service.check_username_exists(username)
+
+@router.get("/user/{id}")
+async def Get_user_By_id(
+    id: int = 10,
+    service: SystemAdministrationService = Depends(get_service(SystemAdministrationService))
+):
+    return await service.get_user_By_id(id=id)

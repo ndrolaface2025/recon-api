@@ -220,18 +220,18 @@ class SystemAdministrationService:
             # Create user once
             if user.id not in users_map:
                 users_map[user.id].update({
-                    "id": user.id,
-                    "f_name": user.f_name,
-                    "m_name": user.m_name,
-                    "l_name": user.l_name,
-                    "gender": user.gender,
-                    "phone": user.phone,
-                    "password": user.password,
-                    "username": user.username,
-                    "version_number": user.version_number,
-                    "email": user.email,
-                    "status": user.status,
-                    "birth_date": user.birth_date.date() if user.birth_date else None,
+                    # "id": user.id,
+                    # "f_name": user.f_name,
+                    # "m_name": user.m_name,
+                    # "l_name": user.l_name,
+                    # "gender": user.gender,
+                    # "phone": user.phone,
+                    # "password": user.password,
+                    # "username": user.username,
+                    # "version_number": user.version_number,
+                    # "email": user.email,
+                    # "status": user.status,
+                    # "birth_date": user.birth_date.date() if user.birth_date else None,
                     "user_roles": user.role,
                 })
 
@@ -239,7 +239,8 @@ class SystemAdministrationService:
             if role:
                 users_map[user.id]["roles"].append({
                     "id": role.id,
-                    "name": role.name
+                    "name": role.name,
+                    "permission_json": role.permission_json
                 })
 
         return {

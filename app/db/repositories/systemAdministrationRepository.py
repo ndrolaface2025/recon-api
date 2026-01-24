@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import any_, or_, select
+from sqlalchemy import String, any_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 from app.db.models.module_config import ModuleConfig
@@ -96,13 +96,58 @@ class SystemAdministrationRepository:
     
     @staticmethod
     async def get_role_List(db: AsyncSession):
-        stmt = select(RoleConfig)
+        from sqlalchemy import select, func, cast
+        from sqlalchemy.dialects.postgresql import JSONB
+        
+        # Subquery to count users per role
+        user_count_subquery = (
+            select(
+                func.jsonb_array_elements_text(
+                    cast(UserConfig.role, JSONB)
+                ).label('role_id'),
+                func.count().label('count')
+            )
+            .select_from(UserConfig)
+            .where(UserConfig.role.isnot(None))
+            .group_by('role_id')
+            .subquery()
+        )
+        
+        # Main query
+        stmt = select(
+            RoleConfig.id,
+            RoleConfig.module_id,
+            RoleConfig.name,
+            RoleConfig.description,
+            RoleConfig.permission_json,
+            RoleConfig.created_at,
+            RoleConfig.updated_at,
+            func.coalesce(user_count_subquery.c.count, 0).label('user_count')
+        ).outerjoin(
+            user_count_subquery,
+            cast(RoleConfig.id, String) == user_count_subquery.c.role_id
+        )
 
         result = await db.execute(stmt)
-        record = result.scalars().all()
-        if not record:
+        records = result.all()
+        
+        if not records:
             return None
-        return record
+        
+        role_list = []
+        for record in records:
+            role_list.append({
+                "id": record.id,
+                "module_id": record.module_id,
+                "name": record.name,
+                "description": record.description,
+                "permission_json": record.permission_json,
+                "created_at": record.created_at,
+                "updated_at": record.updated_at,
+                "users": record.user_count
+            })
+        
+        return role_list
     
 
     @staticmethod
@@ -339,9 +384,7 @@ class SystemAdministrationRepository:
             )
         )
         
-        # Search filter - agar search keyword hai to apply karo
         
-        # Count total records (before pagination)
         count_stmt = (
             select(func.count(func.distinct(UserConfig.id)))
             .select_from(UserConfig)

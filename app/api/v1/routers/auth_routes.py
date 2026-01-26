@@ -2,10 +2,11 @@
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.user_config import UserConfig
-from app.schemas.auth_schemas import LoginRequest, LoginResponse, UserResponse
+from app.schemas.auth_schemas import ForgotPasswordRequest, ForgotPasswordResponse, LoginRequest, LoginResponse, ResetPasswordRequest, ResetPasswordResponse, UserResponse, VerifyResetTokenRequest, VerifyResetTokenResponse
 from app.services.auth_service import AuthService
 from app.dependencies.auth_dependencies import get_current_user_id, get_current_user
-from app.db.session import get_db  # Your existing DB session
+from app.db.session import get_db
+from app.services.password_service import PasswordResetService  # Your existing DB session
 
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -13,6 +14,9 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 # Dependency to get auth service
 def get_auth_service(db: AsyncSession = Depends(get_db)) -> AuthService:
     return AuthService(db)
+
+def get_password_service(db: AsyncSession = Depends(get_db)) -> PasswordResetService:
+    return PasswordResetService(db)
 
 @router.post("/login", response_model=LoginResponse)
 async def login(
@@ -77,3 +81,41 @@ async def protected_route(
         "message": "This is a protected route",
         "user_id": user_id
     }
+
+@router.post("/forgot-password", response_model=ForgotPasswordResponse)
+async def forgot_password(
+    request: ForgotPasswordRequest,
+    service: PasswordResetService = Depends(get_password_service)
+):
+    """
+    Forgot Password - Step 1
+    - User provides username or email
+    - System sends reset link to registered email
+    - Returns masked email for confirmation
+    """
+    return await service.forgot_password(request)
+
+@router.post("/verify-reset-token", response_model=VerifyResetTokenResponse)
+async def verify_reset_token(
+    request: VerifyResetTokenRequest,
+    service: PasswordResetService = Depends(get_password_service)
+):
+    """
+    Verify Reset Token
+    - Checks if token is valid and not expired
+    - Used by frontend to validate token before showing reset form
+    """
+    return await service.verify_reset_token(request.token)
+
+@router.post("/reset-password", response_model=ResetPasswordResponse)
+async def reset_password(
+    request: ResetPasswordRequest,
+    service: PasswordResetService = Depends(get_password_service)
+):
+    """
+    Reset Password - Step 2
+    - User provides token and new password
+    - System validates token and updates password
+    - User can login with new password
+    """
+    return await service.reset_password(request)

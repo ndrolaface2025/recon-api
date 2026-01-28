@@ -14,6 +14,8 @@ from app.services.recon_run_service import (
     get_transactions_by_recon_and_mode,
     get_uploaded_files_by_recon,
     get_rules_by_recon_group,
+    get_full_transactions_by_recon_reference,
+    get_transactions_by_recon_group_grouped,
 )
 
 router = APIRouter(
@@ -106,4 +108,34 @@ async def view_recon_transactions(
         mode=mode,
         page=page,
         size=size,
+    )
+
+
+@router.get(
+    "/{recon_reference_number}",
+    summary="View transaction details for a recon_reference_number",
+)
+async def view_manual_matching_details(
+    recon_reference_number: str,
+    db: AsyncSession = Depends(get_db),
+):
+    return await get_full_transactions_by_recon_reference(
+        db=db,
+        recon_reference_number=recon_reference_number,
+    )
+
+
+@router.get(
+    "/{recon_group_number}/by-reference",
+    summary="View transactions grouped by recon reference number (automatic / manual)",
+)
+async def view_transactions_grouped_by_reference(
+    recon_group_number: str,
+    mode: str | None = Query(None, description="AUTOMATIC | MANUAL | omit for both"),
+    db: AsyncSession = Depends(get_db),
+):
+    return await get_transactions_by_recon_group_grouped(
+        db=db,
+        recon_group_number=recon_group_number,
+        mode=mode,
     )

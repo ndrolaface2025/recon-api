@@ -19,6 +19,7 @@ from tempfile import SpooledTemporaryFile
 
 from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
+import re
 
 
 @dataclass
@@ -73,6 +74,19 @@ class FilePickupService:
         self.upload_service = upload_service
         self.db = db
         self.auth = AuthHandler()
+
+    def _extract_filename(self, response, config: UploadApiConfig) -> str:
+        cd = response.headers.get("Content-Disposition")
+        if cd:
+            match = re.search(r'filename="?([^"]+)"?', cd)
+            if match:
+                return match.group(1)
+
+        path = urlparse(config.base_url).path
+        if path and path != "/":
+            return os.path.basename(path)
+
+        return f"pickup_{config.api_name}.dat"
 
     async def pickup(self, config: UploadApiConfig):
         """
@@ -156,24 +170,17 @@ class FilePickupService:
     async def _pickup_http(self, config: UploadApiConfig):
         headers = self.auth.build_headers(config)
 
-        files = requests.get(
-            f"{config.base_url}/files",
+        r = requests.get(
+            config.base_url,
             headers=headers,
             timeout=config.api_time_out,
-        ).json()
+        )
+        r.raise_for_status()
 
-        for f in files:
-            name = f["name"]
+        filename = self._extract_filename(r, config)
 
-            r = requests.get(
-                f"{config.base_url}/files/{name}",
-                headers=headers,
-                timeout=config.api_time_out,
-            )
-            r.raise_for_status()
-
-            upload_file = self._build_upload_file(name, r.content)
-            await self._process_file(upload_file)
+        upload_file = self._build_upload_file(filename, r.content)
+        await self._process_file(upload_file)
 
     async def _pickup_ftp(self, config: UploadApiConfig):
         parsed = urlparse(config.base_url)

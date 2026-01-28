@@ -3,6 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.db.repositories.generalLedgerRequest import GeneralLedgerCreateRequest
 from app.services.generalLedgerService import GeneralLedgerService
+from fastapi import Query
+
 
 router = APIRouter(prefix="/api/v1")
 
@@ -19,11 +21,28 @@ async def create_general_ledger(
         user_id=temp_id
     )
 
+# @router.get("/general-ledger")
+# async def get_all_general_ledgers(
+#     db: AsyncSession = Depends(get_db),
+# ):
+#     return await GeneralLedgerService.get_all_general_ledgers(db)
 @router.get("/general-ledger")
+# async def get_all_general_ledgers(
+#     offset: int = Query(0, ge=0),
+#     limit: int = Query(10, ge=1, le=100),
+#     db: AsyncSession = Depends(get_db),
+# ):
 async def get_all_general_ledgers(
+    offset: int = Query(0, ge=0),
+    limit: int = Query(10, ge=1),
+    search: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
-    return await GeneralLedgerService.get_all_general_ledgers(db)
+    return await GeneralLedgerService.get_all_general_ledgers(
+        db=db,
+        offset=offset,
+        limit=limit
+    )
 
 @router.delete("/general-ledger/{gl_id}")
 async def delete_general_ledger(

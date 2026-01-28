@@ -20,6 +20,7 @@ from tempfile import SpooledTemporaryFile
 from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 import re
+import paramiko
 
 
 @dataclass
@@ -102,6 +103,9 @@ class FilePickupService:
 
         elif config.method == "FTP":
             await self._pickup_ftp(config)
+
+        elif config.method == "SFTP":
+            await self._pickup_sftp(config)
 
         else:
             raise ValueError(f"Unsupported pickup method: {config.method}")
@@ -208,3 +212,36 @@ class FilePickupService:
 
         finally:
             ftp.quit()
+
+    async def _pickup_sftp(self, config: UploadApiConfig):
+        parsed = urlparse(config.base_url)
+
+        if parsed.scheme != "sftp":
+            raise ValueError("SFTP base_url must start with sftp://")
+
+        if config.auth_type == "BASIC" and config.auth_token:
+            user, password = config.auth_token.split(":", 1)
+        else:
+            raise RuntimeError("SFTP requires BASIC auth (user:password)")
+
+        transport = paramiko.Transport((parsed.hostname, parsed.port or 22))
+        transport.connect(username=user, password=password)
+
+        sftp = paramiko.SFTPClient.from_transport(transport)
+        sftp.chdir(parsed.path or "/")
+
+        try:
+            for name in sftp.listdir():
+                remote_path = (
+                    f"{parsed.path.rstrip('/')}/{name}" if parsed.path else name
+                )
+
+            with sftp.open(remote_path, "rb") as f:
+                content = f.read()
+
+            upload_file = self._build_upload_file(name, content)
+            await self._process_file(upload_file)
+
+        finally:
+            sftp.close()
+            transport.close()

@@ -1,4 +1,4 @@
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, or_
 from sqlalchemy.orm import Session
 from datetime import date
 from app.flexcube_db.models.actb_history import ActbHistory
@@ -17,6 +17,7 @@ class ActbHistoryRepository:
         ccy: str | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
+        search: str | None = None,  # 👈 NEW
     ):
         conditions = []
 
@@ -30,10 +31,18 @@ class ActbHistoryRepository:
             conditions.append(ActbHistory.ac_ccy == ccy)
 
         if date_from:
-            conditions.append(ActbHistory.trn_date >= date_from)
+            conditions.append(ActbHistory.trn_dt >= date_from)
 
         if date_to:
-            conditions.append(ActbHistory.trn_date <= date_to)
+            conditions.append(ActbHistory.trn_dt <= date_to)
+
+        if search:
+            conditions.append(
+                or_(
+                    ActbHistory.trn_ref_no == search,
+                    ActbHistory.external_ref_no == search,
+                )
+            )
 
         base_query = select(ActbHistory)
 
@@ -46,7 +55,7 @@ class ActbHistoryRepository:
         offset = (page - 1) * page_size
 
         query = (
-            base_query.order_by(ActbHistory.trn_date.desc())
+            base_query.order_by(ActbHistory.trn_dt.desc())
             .offset(offset)
             .limit(page_size)
         )

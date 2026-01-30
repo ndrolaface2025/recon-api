@@ -14,10 +14,9 @@ class ActbHistoryRepository:
         page_size: int,
         ac_no: str | None = None,
         drcr_ind: str | None = None,
-        ccy: str | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
-        search: str | None = None,  # 👈 NEW
+        search: str | None = None,
     ):
         conditions = []
 
@@ -26,9 +25,6 @@ class ActbHistoryRepository:
 
         if drcr_ind:
             conditions.append(ActbHistory.drcr_ind == drcr_ind)
-
-        if ccy:
-            conditions.append(ActbHistory.ac_ccy == ccy)
 
         if date_from:
             conditions.append(ActbHistory.trn_dt >= date_from)

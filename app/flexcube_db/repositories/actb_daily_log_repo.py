@@ -16,7 +16,7 @@ class ActbDailyLogRepository:
         drcr_ind: str | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
-        search: str | None = None,  # 👈 NEW
+        search: str | None = None,
     ):
         conditions = []
 
@@ -36,7 +36,7 @@ class ActbDailyLogRepository:
             conditions.append(
                 or_(
                     ActbDailyLog.trn_ref_no == search,
-                    ActbDailyLog.batch_no == search,
+                    ActbDailyLog.external_ref_no == search,
                 )
             )
 

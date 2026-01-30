@@ -1,5 +1,6 @@
 from sqlalchemy import select, func, or_
 from sqlalchemy.orm import Session
+
 from app.flexcube_db.models.gltm_glmaster import GltmGlmaster
 
 
@@ -12,6 +13,7 @@ class GltmGlmasterRepository:
         search: str | None = None,
         limit: int = 50,
     ):
+
         query = select(
             GltmGlmaster.gl_code,
             GltmGlmaster.gl_desc,

@@ -177,3 +177,42 @@ The beat schedule is configured to trigger **every minute**.
 ```bash
 celery -A app.celery_app.celery_app beat -l info
 ```
+
+## 🏦 Flexcube Integration
+
+The backend supports **Flexcube database integration** using **SQLAlchemy ORM (read-only)**.
+
+## Run Flexcube Mock Database (Docker – DEV)
+
+Use Oracle XE to simulate a Flexcube database.
+
+### Start Oracle XE Container
+
+````bash
+docker run -d \
+  --name flexcube-mock \
+  -p 1521:1521 \
+  -p 6060:5500 \
+  -e ORACLE_PASSWORD=Flexcube@123 \
+  gvenzl/oracle-xe:21-slim
+
+### Create the Flexcube schema
+
+```sql
+CREATE USER FLEXCUBE IDENTIFIED BY FlexcubeApp@123;
+GRANT CONNECT, RESOURCE TO FLEXCUBE;
+ALTER USER FLEXCUBE QUOTA UNLIMITED ON USERS;
+```
+
+### 🔐 Environment Configuration
+
+Add the following to `.env`:
+
+```env
+# Flexcube DB (DEV / PROD)
+FLEXCUBE_DB_USER=FLEXCUBE
+FLEXCUBE_DB_PASSWORD=FlexcubeApp@123
+FLEXCUBE_DB_HOST=localhost
+FLEXCUBE_DB_PORT=1521
+FLEXCUBE_DB_SERVICE=XEPDB1
+````

@@ -2,12 +2,60 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from datetime import date
 
+from app.flexcube_db.repositories.acvw_all_ac_entries_repo import (
+    AcvwAllAcEntriesRepository,
+)
 from app.flexcube_db.session import get_flexcube_db
 from app.flexcube_db.repositories.actb_history_repo import ActbHistoryRepository
 from app.flexcube_db.repositories.actb_daily_log_repo import ActbDailyLogRepository
 from app.flexcube_db.repositories.gltm_glmaster_repo import GltmGlmasterRepository
 
 router = APIRouter(prefix="/api/v1/flexcube", tags=["Flexcube"])
+
+
+@router.get("/acvw-all-ac-entries")
+async def get_acvw_all_ac_entries(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(30, ge=1, le=500),
+    ac_no: str | None = Query(None),
+    drcr_ind: str | None = Query(None),
+    date_from: date | None = Query(None),
+    date_to: date | None = Query(None),
+    search: str | None = Query(
+        None,
+        description="Search by TRN_REF_NO or EXTERNAL_REF_NO",
+    ),
+    db: Session = Depends(get_flexcube_db),
+):
+    repo = AcvwAllAcEntriesRepository(db)
+
+    records, total_records = repo.get_filtered(
+        page=page,
+        page_size=page_size,
+        ac_no=ac_no,
+        drcr_ind=drcr_ind,
+        date_from=date_from,
+        date_to=date_to,
+        search=search,
+    )
+
+    total_pages = (total_records + page_size - 1) // page_size
+
+    return {
+        "success": True,
+        "message": "ACVW all account entries fetched successfully",
+        "data": records,
+        "meta": {
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total_records": total_records,
+                "total_pages": total_pages,
+                "has_next": page < total_pages,
+                "has_previous": page > 1,
+            }
+        },
+    }
 
 
 @router.get("/actb-history")

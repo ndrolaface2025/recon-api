@@ -1,4 +1,4 @@
-from sqlalchemy import Column, BigInteger, String, Date, Numeric, Text, TIMESTAMP, CHAR
+from sqlalchemy import Column, BigInteger, String, Date, Numeric, Text, TIMESTAMP, CHAR, ForeignKey
 from sqlalchemy.sql import func
 from app.db.base import Base
 
@@ -23,9 +23,9 @@ class TxnJournalEntry(Base):
     batch_no = Column(String(50))
     source_id = Column(String(50))
     auth_stat = Column(String(20))
-    maker_id = Column(String(50))
+    maker_id = Column(BigInteger, ForeignKey("tbl_cfg_users.id"), nullable=True)
     maker_dt_stamp = Column(TIMESTAMP)
-    checker_id = Column(String(50))
+    checker_id  = Column(BigInteger, ForeignKey("tbl_cfg_users.id"), nullable=True)
     checker_dt_stamp = Column(TIMESTAMP)
     comments = Column(Text)
     created_at = Column(TIMESTAMP, server_default=func.now())

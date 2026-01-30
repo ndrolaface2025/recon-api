@@ -6,6 +6,7 @@ from datetime import datetime
 
 from app.db.session import get_db
 from app.db.models.transactions import Transaction
+from app.services.transactionService import TransactionService
 from app.db.models.channel_config import ChannelConfig
 from app.db.models.source_config import SourceConfig
 from app.db.models.matching_rule_config import MatchingRuleConfig
@@ -654,3 +655,8 @@ async def get_transaction_details(
             "data": {}
         }
 
+@router.get("/all-manual")
+async def get_all_manual_transactions(
+    db = Depends(get_db)
+):
+    return await TransactionService.getInvestigatedTxnIds(db)

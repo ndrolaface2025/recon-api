@@ -1,17 +1,14 @@
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
-from sqlalchemy.dialects.postgresql import insert
 from app.db.models.manualTransaction import ManualTransaction
-from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy import text
 from sqlalchemy.orm import Session
 from app.db.models.channel_config import ChannelConfig
 from app.db.models.source_config import SourceConfig
 from sqlalchemy import select
 from datetime import datetime
-from datetime import datetime, timezone
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
+import random
 
 
 class ManualTransactionService:
@@ -26,7 +23,6 @@ class ManualTransactionService:
 
         for data in payloads:
             try:
-                # created_at is stored exactly as received
                 record = model(**data)
                 db.add(record)
 
@@ -34,7 +30,6 @@ class ManualTransactionService:
                 inserted += 1
 
             except IntegrityError:
-                # duplicate id (PRIMARY KEY / UNIQUE)
                 await db.rollback()
                 skipped += 1
                 continue
@@ -54,44 +49,21 @@ class ManualTransactionService:
             "inserted": inserted,
             "skipped": skipped
         }
-
+    
     @staticmethod
-    async def generate_recon_reference_number(db: Session) -> str:
-        result = await db.execute(
-            text("""
-            SELECT
-              'RN' || LPAD(
-                (
-                  COALESCE(
-                    MAX(
-                      CASE
-                        WHEN recon_reference_number ~ '^RN[0-9]+$'
-                        THEN SUBSTRING(recon_reference_number FROM 3)::INT
-                        ELSE NULL
-                      END
-                    ),
-                    0
-                  ) + 1
-                )::TEXT,
-                3,
-                '0'
-              )
-            FROM tbl_txn_manual
-            """)
-        )
-        return result.scalar()
+    async def generate_reference(self):
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        rand = random.randint(1000, 9999)
+        return f"REF-{timestamp}-{rand}"
 
     @staticmethod
     async def patch(db: Session, manual_txn_ids: list[int], payload: dict):
-        # txns = db.query(ManualTransaction).filter(
-        #     ManualTransaction.manual_txn_id.in_(manual_txn_ids)
-        # ).all()
         txns = (await db.execute(select(ManualTransaction).where(ManualTransaction.id.in_(manual_txn_ids)))).scalars().all()
 
         if not txns:
             raise HTTPException(status_code=404, detail="Transaction not found")
 
-        recon_ref = await ManualTransactionService.generate_recon_reference_number(db)
+        recon_ref = await ManualTransactionService.generate_reference(db)
 
         for txn in txns:
             for field, value in payload.items():

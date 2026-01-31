@@ -2,6 +2,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.channel_config import ChannelConfig
+from app.db.models.network import Network
 from app.db.models.source_config import SourceConfig
 from app.db.models.transactions import Transaction
 
@@ -135,5 +136,51 @@ class ChannelSourceRepository:
             return {
                 "status": "error",
                 "message": "Failed to fetch source list",
+                "error": str(e),
+            }
+        
+    @staticmethod
+    async def getChannelNetworkList(db: AsyncSession):
+        try:
+            # ✅ Total count
+            total_stmt = select(func.count()).select_from(Network)
+            total_result = await db.execute(total_stmt)
+            total = total_result.scalar() or 0
+
+            # ✅ Channel list query
+            stmt = (
+                select(Network)
+                .order_by(Network.created_at.desc())
+            )
+
+            result = await db.execute(stmt)
+            networks = result.scalars().all()
+
+            # ✅ Response data
+            data = [
+                {
+                    "id": network.id,
+                    "network_name": network.network_name,
+                    "network_desc": network.network_desc,
+                    "channel_id": network.channel_id,
+                    "status": network.status,
+                    "version_number": network.version_number,
+                }
+                for network in networks
+            ]
+
+            return {
+                "status": "success",
+                "total": total,
+                "count": len(data),
+                "data": data,
+            }
+
+        except Exception as e:
+            await db.rollback()
+            print("ChannelRepository.getChannelNetworkList error:", str(e))
+            return {
+                "status": "error",
+                "message": "Failed to fetch channel list",
                 "error": str(e),
             }

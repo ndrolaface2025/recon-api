@@ -38,11 +38,13 @@ class MatchingRuleCreate(MatchingRuleBase):
     rule_name: str = Field(..., min_length=1, max_length=255, description="Name of the matching rule")
     channel_id: int = Field(..., description="ID of the channel this rule belongs to")
     created_by: Optional[int] = Field(None, description="User ID who created the rule")
+    network_id: Optional[int] = Field(None, description="Network ID associated with the rule")
 
 
 class MatchingRuleUpdate(MatchingRuleBase):
     """Schema for updating an existing matching rule"""
     updated_by: Optional[int] = Field(None, description="User ID who updated the rule")
+    network_id: Optional[int] = Field(None, description="Network ID associated with the rule")
 
 
 class MatchingRuleResponse(BaseModel):
@@ -59,6 +61,7 @@ class MatchingRuleResponse(BaseModel):
     updated_at: Optional[datetime] = None
     updated_by: Optional[int] = None
     version_number: Optional[int] = None
+    network_id: Optional[int] = None
     
     @field_serializer('conditions', 'tolerance')
     def serialize_json_field(self, value: Optional[Union[str, Dict[str, Any]]]) -> Optional[str]:

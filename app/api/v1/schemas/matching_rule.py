@@ -61,7 +61,7 @@ class MatchingRuleResponse(BaseModel):
     updated_at: Optional[datetime] = None
     updated_by: Optional[int] = None
     version_number: Optional[int] = None
-    # network_id: Optional[int] = None
+    network_id: Optional[int] = None
     
     @field_serializer('conditions', 'tolerance')
     def serialize_json_field(self, value: Optional[Union[str, Dict[str, Any]]]) -> Optional[str]:

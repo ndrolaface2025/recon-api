@@ -1218,37 +1218,85 @@ class ApplicationMatcher:
         
         logger.info(f"🔍 Finding matches: min_sources={min_sources}, total_sources={len(source_names)}, sources={source_names}")
         
-        # Group transactions by RRN for each source
-        txns_by_rrn = {}
+        # Group transactions by matching key using ALL fields from equality conditions
+        # Extract fields that need to match from the logic expression
+        matching_fields = set()
+        
+        # Parse the expression to find ALL equality fields
+        # Look for patterns like "source1.field == source2.field"
+        import re
+        logic_expr_str = ast.unparse(tree) if hasattr(ast, 'unparse') else condition_expr
+        
+        # Find all field comparisons - this captures any field used in equality checks
+        # Pattern matches: "source.field ==" (captures "field")
+        field_patterns = re.findall(r'\.(\w+)\s*==', logic_expr_str)
+        matching_fields.update(field_patterns)
+        
+        # Don't remove anything - we need ALL fields that are compared for equality
+        # The composite key will include the RRN (reference_number) plus all other equality fields
+        
+        # If no fields found (shouldn't happen, but safeguard), at least use reference_number
+        if not matching_fields:
+            logger.warning("⚠️  No equality fields found in condition, defaulting to reference_number only")
+            matching_fields.add("reference_number")
+        
+        logger.info(f"   Grouping transactions by composite key with fields: {sorted(matching_fields)}")
+
+        
+        # Group transactions by composite key using ALL matching fields
+        txns_by_key = {}
         for source_name in source_names:
             source_txns = transactions_by_source.get(source_name, [])
             logger.info(f"   Source {source_name}: {len(source_txns)} transactions")
             
             for txn in source_txns:
-                rrn = txn.get("rrn")
-                if rrn:
-                    if rrn not in txns_by_rrn:
-                        txns_by_rrn[rrn] = {}
-                    if source_name not in txns_by_rrn[rrn]:
-                        txns_by_rrn[rrn][source_name] = []
-                    txns_by_rrn[rrn][source_name].append(txn)
+                # Build composite key from ALL matching fields
+                # Sort fields for consistent key generation
+                key_parts = []
+                
+                for field in sorted(matching_fields):
+                    # Map common aliases to standard field names
+                    field_name = field
+                    if field in ["rrn", "reference_number"]:
+                        field_value = txn.get("rrn") or txn.get("reference_number")
+                    else:
+                        field_value = txn.get(field)
+                    
+                    # Skip if field value is None/missing
+                    if field_value is None:
+                        continue
+                    
+                    key_parts.append(f"{field_name}={field_value}")
+                
+                # Skip transactions without any matching fields
+                if not key_parts:
+                    logger.debug(f"   Skipping transaction {txn.get('id')} - no matching field values")
+                    continue
+                
+                composite_key = "|".join(key_parts)
+                
+                if composite_key not in txns_by_key:
+                    txns_by_key[composite_key] = {}
+                if source_name not in txns_by_key[composite_key]:
+                    txns_by_key[composite_key][source_name] = []
+                txns_by_key[composite_key][source_name].append(txn)
         
-        logger.info(f"   Found {len(txns_by_rrn)} unique RRNs")
+        logger.info(f"   Found {len(txns_by_key)} unique matching keys (RRN + other fields)")
         
         # Find matching groups
         matched_groups = []
         compiled_expr = compile(tree, "<rule>", "eval")
         
-        for rrn, sources_dict in txns_by_rrn.items():
-            # Check if we have enough sources for this RRN
+        for composite_key, sources_dict in txns_by_key.items():
+            # Check if we have enough sources for this key
             available_sources = list(sources_dict.keys())
             num_sources = len(available_sources)
             
             if num_sources < min_sources:
-                logger.warning(f"   RRN {rrn}: SKIPPED - only {num_sources} sources (min required: {min_sources}), sources={available_sources}")
+                logger.warning(f"   Key {composite_key}: SKIPPED - only {num_sources} sources (min required: {min_sources}), sources={available_sources}")
                 continue
             
-            logger.info(f"   RRN {rrn}: {num_sources} sources available ({available_sources}), min_sources={min_sources}, total_sources={len(source_names)}")
+            logger.info(f"   Key {composite_key}: {num_sources} sources available ({available_sources}), min_sources={min_sources}, total_sources={len(source_names)}")
             
             # If we have all sources, do full evaluation
             if num_sources == len(source_names):
@@ -1263,20 +1311,22 @@ class ApplicationMatcher:
                     
                     try:
                         if eval(compiled_expr, {}, context):
-                            logger.info(f"✅ Match Found (FULL) --> RRN={rrn}, IDs={[context[src].id for src in source_names]}")
+                            # Extract RRN from composite key for logging
+                            rrn_value = composite_key.split("|")[0] if "|" in composite_key else composite_key
+                            logger.info(f"✅ Match Found (FULL) --> Key={composite_key}, IDs={[context[src].id for src in source_names]}")
                             matched_groups.append({
                                 "transactions": [txn for txn in txn_tuple],
-                                "match_key": rrn,
+                                "match_key": composite_key,
                                 "sources_matched": source_names
                             })
-                            break  # Take first matching combination for this RRN
+                            break  # Take first matching combination for this key
                     except Exception as e:
-                        logger.debug(f"Condition evaluation error for RRN {rrn}: {e}")
+                        logger.debug(f"Condition evaluation error for key {composite_key}: {e}")
                         continue
             
             else:
                 # Partial match - we have min_sources <= num_sources < total_sources
-                logger.info(f"   🔄 RRN {rrn}: Attempting PARTIAL match with {num_sources} sources (need {min_sources}, total possible {len(source_names)})")
+                logger.info(f"   🔄 Key {composite_key}: Attempting PARTIAL match with {num_sources} sources (need {min_sources}, total possible {len(source_names)})")
                 # Try all combinations of available sources that meet min_sources
                 for combo_size in range(num_sources, min_sources - 1, -1):
                     logger.debug(f"      Trying combinations of size {combo_size}")
@@ -1304,17 +1354,17 @@ class ApplicationMatcher:
                                 
                                 logger.debug(f"         Evaluating: {partial_expr}")
                                 if eval(partial_expr, {}, context):
-                                    logger.warning(f"✅ Match Found (PARTIAL) --> RRN={rrn}, sources={source_combo}, IDs={[context[src].id for src in source_combo]}")
+                                    logger.warning(f"✅ Match Found (PARTIAL) --> Key={composite_key}, sources={source_combo}, IDs={[context[src].id for src in source_combo]}")
                                     matched_groups.append({
                                         "transactions": [txn for txn in txn_tuple],
-                                        "match_key": rrn,
+                                        "match_key": composite_key,
                                         "sources_matched": list(source_combo)
                                     })
                                     break  # Take first matching combination
                                 else:
                                     logger.debug(f"         Expression evaluated to False")
                             except Exception as e:
-                                logger.warning(f"Partial match evaluation error for RRN {rrn}: {e}")
+                                logger.warning(f"Partial match evaluation error for key {composite_key}: {e}")
                                 continue
                         else:
                             continue
@@ -1752,9 +1802,12 @@ class ApplicationMatcher:
         return True
     
     def generate_reference(self):
+        """Generate a unique reference number using timestamp + microseconds + UUID"""
+        import uuid
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        rand = random.randint(1000, 9999)
-        return f"REF-{timestamp}-{rand}"
+        microseconds = datetime.now().microsecond
+        unique_id = uuid.uuid4().hex[:6]  # 6-char hex for extra uniqueness
+        return f"REF-{timestamp}-{microseconds:06d}-{unique_id}"
 
     def generate_recon_run_group(self, prefix="RECON"):
         import uuid

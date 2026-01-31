@@ -65,6 +65,56 @@ async def list_matching_rules(
     }
 
 
+@router.get("/search", response_model=list[MatchingRuleResponse])
+async def get_matching_rules_by_filters(
+    channel_id: int = Query(..., description="Channel ID (required)"),
+    network_id: Optional[int] = Query(None, description="Network ID (optional)"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get all active matching rules by channel_id and optional network_id.
+    
+    This endpoint allows you to retrieve matching rules filtered by:
+    - **channel_id**: ID of the channel (required)
+    - **network_id**: ID of the network (optional)
+    
+    If network_id is provided, only rules for that specific network will be returned.
+    If network_id is not provided, all rules for the channel will be returned.
+    
+    Example usage:
+    - GET /api/v1/matching-rules/search?channel_id=1 (get all rules for channel 1)
+    - GET /api/v1/matching-rules/search?channel_id=1&network_id=5 (get rules for channel 1 and network 5)
+    """
+    rules = await MatchingRuleRepository.get_by_channel_and_network(
+        db, 
+        channel_id=channel_id, 
+        network_id=network_id
+    )
+    
+    if not rules:
+        raise HTTPException(
+            status_code=404, 
+            detail=f"No matching rules found for channel_id={channel_id}" + 
+                   (f" and network_id={network_id}" if network_id else "")
+        )
+    
+    return rules
+
+
+@router.get("/channel/{channel_id}", response_model=list[MatchingRuleResponse])
+async def get_rules_by_channel(
+    channel_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get all active matching rules for a specific channel.
+    
+    - **channel_id**: ID of the channel
+    """
+    rules = await MatchingRuleRepository.get_by_channel(db, channel_id)
+    return rules
+
+
 @router.get("/{rule_id}", response_model=MatchingRuleResponse)
 async def get_matching_rule(
     rule_id: int,
@@ -113,17 +163,3 @@ async def delete_matching_rule(
     if not deleted:
         raise HTTPException(status_code=404, detail=f"Matching rule with ID {rule_id} not found")
     return HTTPException(status_code=200, detail=f"The matching rule has been deleted successfully")
-
-
-@router.get("/channel/{channel_id}", response_model=list[MatchingRuleResponse])
-async def get_rules_by_channel(
-    channel_id: int,
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Get all active matching rules for a specific channel.
-    
-    - **channel_id**: ID of the channel
-    """
-    rules = await MatchingRuleRepository.get_by_channel(db, channel_id)
-    return rules

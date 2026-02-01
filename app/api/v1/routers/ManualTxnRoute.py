@@ -5,10 +5,11 @@ from app.services.manualTransactionService import ManualTransactionService
 from app.services.transactionService import TransactionService
 from fastapi import HTTPException
 from app.db.models.manualTransaction import ManualTransaction
+from app.utils.enums.reconciliation import ReconciliationStatus
 
 router = APIRouter(prefix="/api/v1")
 
- 
+
 # @router.patch("/manual-transactions")
 # async def patch_manual_transactions(
 #     payload: dict = Body(...),
@@ -38,6 +39,7 @@ router = APIRouter(prefix="/api/v1")
 #             payload
 #         )
 
+
 #     return {
 #         "success": True,
 #         "message": "Manual and master transactions updated successfully",
@@ -46,46 +48,42 @@ router = APIRouter(prefix="/api/v1")
 #     }
 @router.patch("/manual-transactions")
 async def patch_manual_transactions(
-    payload: dict = Body(...),
-    db: Session = Depends(get_db)
+    payload: dict = Body(...), db: Session = Depends(get_db)
 ):
     manual_txn_ids = payload.pop("manual_txn_ids", None)
 
     if not manual_txn_ids or not isinstance(manual_txn_ids, list):
         raise HTTPException(
-            status_code=400,
-            detail="manual_txn_ids must be a non-empty list"
+            status_code=400, detail="manual_txn_ids must be a non-empty list"
         )
 
     manual_result = await ManualTransactionService.patch(
-        db=db,
-        manual_txn_ids=manual_txn_ids,
-        payload=payload
+        db=db, manual_txn_ids=manual_txn_ids, payload=payload
     )
 
     recon_ref = manual_result["recon_reference_number"]
 
-    if payload.get("reconciled_status"):
+    reconciliation_status = payload.get("reconciliation_status")
 
-        txn_ids = [
-            txn.id  
-            for txn in manual_result["transactions"]
-        ]
+    if reconciliation_status == ReconciliationStatus.COMPLETED:
+
+        txn_ids = [txn.id for txn in manual_result["transactions"]]
 
         await TransactionService.patch(
             db=db,
             ids=txn_ids,
             recon_reference_number=recon_ref,
-            match_status = 1,
-            payload=payload
+            match_status=1,
+            payload=payload,
         )
 
     return {
         "success": True,
         "message": "Manual and master transactions updated successfully",
         "data": manual_result["transactions"],
-        "recon_reference_number": recon_ref
+        "recon_reference_number": recon_ref,
     }
+
 
 # @router.get("/manual-transactions")
 # def get_all_manual_transactions(
@@ -96,18 +94,12 @@ async def patch_manual_transactions(
 #         username="Ackim"
 #     )
 @router.get("/manual-transactions")
-async def get_all_manual_transactions(
-    db = Depends(get_db)
-):
+async def get_all_manual_transactions(db=Depends(get_db)):
     return await ManualTransactionService.get_all_json(db)
+
 
 @router.post("/manual-transactions")
 async def create_manual_transaction(
-    payload: list[dict] = Body(...),
-    db: Session = Depends(get_db)
+    payload: list[dict] = Body(...), db: Session = Depends(get_db)
 ):
-    return await ManualTransactionService.create_many(
-        db,
-        payload,
-        ManualTransaction
-    )
+    return await ManualTransactionService.create_many(db, payload, ManualTransaction)

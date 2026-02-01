@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
 
+from app.utils.enums.reconciliation import ReconciliationStatus
+
 
 class ManualTransactionService:
 
@@ -45,20 +47,20 @@ class ManualTransactionService:
 
         if inserted == 0 and skipped > 0:
             raise HTTPException(
-                status_code=409,
-                detail="All transactions already exist"
+                status_code=409, detail="All transactions already exist"
             )
 
         return {
             "message": "Transactions processed",
             "inserted": inserted,
-            "skipped": skipped
+            "skipped": skipped,
         }
 
     @staticmethod
     async def generate_recon_reference_number(db: Session) -> str:
         result = await db.execute(
-            text("""
+            text(
+                """
             SELECT
               'RN' || LPAD(
                 (
@@ -77,7 +79,8 @@ class ManualTransactionService:
                 '0'
               )
             FROM tbl_txn_manual
-            """)
+            """
+            )
         )
         return result.scalar()
 
@@ -86,7 +89,17 @@ class ManualTransactionService:
         # txns = db.query(ManualTransaction).filter(
         #     ManualTransaction.manual_txn_id.in_(manual_txn_ids)
         # ).all()
-        txns = (await db.execute(select(ManualTransaction).where(ManualTransaction.id.in_(manual_txn_ids)))).scalars().all()
+        txns = (
+            (
+                await db.execute(
+                    select(ManualTransaction).where(
+                        ManualTransaction.id.in_(manual_txn_ids)
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
 
         if not txns:
             raise HTTPException(status_code=404, detail="Transaction not found")
@@ -102,10 +115,7 @@ class ManualTransactionService:
 
         await db.commit()
 
-        return {
-            "transactions": txns,
-            "recon_reference_number": recon_ref
-        }
+        return {"transactions": txns, "recon_reference_number": recon_ref}
 
     @staticmethod
     async def get_all_json(db):
@@ -118,18 +128,12 @@ class ManualTransactionService:
                 ManualTransaction.txn_date,
                 ChannelConfig.channel_name.label("channel_id"),
                 SourceConfig.source_name.label("source_id"),
-                ManualTransaction.json_file
+                ManualTransaction.json_file,
             )
-            .join(
-                ChannelConfig,
-                ChannelConfig.id == ManualTransaction.channel_id
-            )
-            .join(
-                SourceConfig,
-                SourceConfig.id == ManualTransaction.source_id
-            )
+            .join(ChannelConfig, ChannelConfig.id == ManualTransaction.channel_id)
+            .join(SourceConfig, SourceConfig.id == ManualTransaction.source_id)
             .where(
-                ManualTransaction.reconciled_status.is_(False)
+                ManualTransaction.reconciliation_status == ReconciliationStatus.PENDING
             )
             .order_by(ManualTransaction.id.desc())
         )
@@ -141,12 +145,12 @@ class ManualTransactionService:
             {
                 "manual_txn_id": r.id,
                 "reference_number": r.reference_number,
-                "account_number":r.account_number,
-                "amount":r.amount,
+                "account_number": r.account_number,
+                "amount": r.amount,
                 "txn_date": r.txn_date,
-                "channel_id": r.channel_id,    
-                "source_id": r.source_id,    
-                "json_file": r.json_file
+                "channel_id": r.channel_id,
+                "source_id": r.source_id,
+                "json_file": r.json_file,
             }
             for r in rows
         ]

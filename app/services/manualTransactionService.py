@@ -4,12 +4,13 @@ from app.db.models.manualTransaction import ManualTransaction
 from sqlalchemy.orm import Session
 from app.db.models.channel_config import ChannelConfig
 from app.db.models.source_config import SourceConfig
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from datetime import datetime
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
 import random
 
+from app.db.models.transactions import Transaction
 from app.utils.enums.reconciliation import ReconciliationStatus
 
 
@@ -27,6 +28,21 @@ class ManualTransactionService:
             try:
                 record = model(**data)
                 db.add(record)
+                await db.flush()
+
+                if data.get("manual_txn_id"):
+                    await db.execute(
+                        update(Transaction)
+                        .where(
+                            Transaction.id == data["manual_txn_id"],
+                            Transaction.reconciliation_status
+                            != ReconciliationStatus.IN_PROGRESS.value,
+                        )
+                        .values(
+                            reconciliation_status=ReconciliationStatus.IN_PROGRESS.value,
+                            updated_at=func.now(),
+                        )
+                    )
 
                 await db.commit()
                 inserted += 1
@@ -50,7 +66,7 @@ class ManualTransactionService:
             "inserted": inserted,
             "skipped": skipped,
         }
-    
+
     @staticmethod
     async def generate_reference(self):
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -59,7 +75,17 @@ class ManualTransactionService:
 
     @staticmethod
     async def patch(db: Session, manual_txn_ids: list[int], payload: dict):
-        txns = (await db.execute(select(ManualTransaction).where(ManualTransaction.id.in_(manual_txn_ids)))).scalars().all()
+        txns = (
+            (
+                await db.execute(
+                    select(ManualTransaction).where(
+                        ManualTransaction.id.in_(manual_txn_ids)
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
 
         if not txns:
             raise HTTPException(status_code=404, detail="Transaction not found")

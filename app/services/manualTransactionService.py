@@ -30,11 +30,11 @@ class ManualTransactionService:
                 db.add(record)
                 await db.flush()
 
-                if data.get("manual_txn_id"):
+                if data.get("id"):
                     await db.execute(
                         update(Transaction)
                         .where(
-                            Transaction.id == data["manual_txn_id"],
+                            Transaction.id == data["id"],
                             Transaction.reconciliation_status
                             != ReconciliationStatus.IN_PROGRESS.value,
                         )

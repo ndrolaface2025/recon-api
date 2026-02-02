@@ -31,7 +31,7 @@ class BatchConfigRepository:
             new_record = SystemBatchConfig(
                 system_id=payload["system_id"],
                 record_per_job=payload["record_per_job"],
-                created_by= 1,
+                created_by= payload["created_by"],
                 version_number=1,
             )
 
@@ -43,7 +43,7 @@ class BatchConfigRepository:
 
         # ✅ UPDATE
         existing_record.record_per_job = payload["record_per_job"]
-        existing_record.created_by = payload.get("created_by", 1)
+        existing_record.created_by = payload["created_by"]
 
         # 👇 increment version safely
         existing_record.version_number = (

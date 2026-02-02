@@ -6,6 +6,7 @@ from datetime import datetime
 
 from app.db.session import get_db
 from app.db.models.transactions import Transaction
+from app.services.transactionService import TransactionService
 from app.db.models.channel_config import ChannelConfig
 from app.db.models.source_config import SourceConfig
 from app.db.models.matching_rule_config import MatchingRuleConfig

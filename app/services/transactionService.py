@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException
 from app.db.models.transactions import Transaction
 from sqlalchemy import select
+from app.db.models.manualTransaction import ManualTransaction
 
 class TransactionService:
 
@@ -18,28 +19,6 @@ class TransactionService:
                 select(Transaction).where(Transaction.id.in_(ids))
             )
         ).scalars().all()
-
-        # txns = db.query(Transaction).filter(
-        #     Transaction.txn_id.in_(txn_ids)
-        # ).all()
-        # txns = (await db.execute(select(Transaction).where(Transaction.id.in_(txn_ids)))).scalars().all()
-
-        # if not txns:
-        #     raise HTTPException(
-        #         status_code=404,
-        #         detail="Master transaction(s) not found"
-        #     )
-
-        # for txn in txns:
-        #     for field, value in payload.items():
-        #         if hasattr(txn, field):
-        #             setattr(txn, field, value)
-
-        #     txn.recon_reference_number = recon_reference_number
-        #     txn.match_status = match_status
-
-        # await db.commit()
-        # return txns
         txns = (
         await db.execute(
             select(Transaction).where(Transaction.id.in_(ids))
@@ -57,17 +36,6 @@ class TransactionService:
             k: v for k, v in payload.items()
             if hasattr(Transaction, k)
         }
-
-        # for txn in txns:
-        #     for field, value in payload.items():
-        #         if hasattr(txn, field):
-        #             setattr(txn, field, value)
-
-        #     txn.recon_reference_number = recon_reference_number
-        #     # txn.match_status = match_status
-
-        # await db.commit()
-        # return txns
         for txn in txns:
             # Apply allowed field updates
             for field, value in payload.items():
@@ -82,4 +50,12 @@ class TransactionService:
 
         await db.commit()
         return txns
+    
+    @staticmethod
+    async def getInvestigatedTxnIds(db: Session):
+        result = await db.execute(
+            select(ManualTransaction.id)
+        )
+        return result.scalars().all()
+
 

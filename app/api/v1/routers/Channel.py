@@ -19,3 +19,7 @@ async def getChannelList(service: ChannelSourceService = Depends(get_service(Cha
 @router.get("/source/{channel_id}")
 async def getChannelSourceList(channel_id: int,service: ChannelSourceService = Depends(get_service(ChannelSourceService))):
     return await service.get_source_list_By_channel_id(channel_id)
+
+@router.get("/network")
+async def getNetworkList(service: ChannelSourceService = Depends(get_service(ChannelSourceService))):
+    return await service.get_channel_network_list()

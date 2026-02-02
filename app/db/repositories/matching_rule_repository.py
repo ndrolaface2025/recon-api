@@ -19,7 +19,8 @@ class MatchingRuleRepository:
             tolerance=rule_data.tolerance,
             status=rule_data.status,
             created_by=rule_data.created_by,
-            version_number=1
+            version_number=1,
+            network_id=rule_data.network_id,
         )
         db.add(rule)
         await db.commit()

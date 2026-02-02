@@ -1,6 +1,7 @@
 """
 Transaction Search API Schemas
 """
+
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
@@ -8,10 +9,20 @@ from datetime import datetime
 
 class SmartSearchRequest(BaseModel):
     """Smart search request that auto-detects field types from comma-separated input"""
-    search_query: Optional[str] = Field(None, description="Comma-separated values that will be auto-detected as RRN, account, or amount")
-    rrn_list: Optional[List[str]] = Field(None, description="List of Reference Numbers (RRNs) for multi-select")
-    date_from: Optional[str] = Field(None, description="Start date for date range filter (format: YYYY-MM-DD)")
-    date_to: Optional[str] = Field(None, description="End date for date range filter (format: YYYY-MM-DD)")
+
+    search_query: Optional[str] = Field(
+        None,
+        description="Comma-separated values that will be auto-detected as RRN, account, or amount",
+    )
+    rrn_list: Optional[List[str]] = Field(
+        None, description="List of Reference Numbers (RRNs) for multi-select"
+    )
+    date_from: Optional[str] = Field(
+        None, description="Start date for date range filter (format: YYYY-MM-DD)"
+    )
+    date_to: Optional[str] = Field(
+        None, description="End date for date range filter (format: YYYY-MM-DD)"
+    )
     source_id: Optional[int] = Field(None, description="Source ID")
     page: int = Field(1, ge=1, description="Page number (starts from 1)")
     page_size: int = Field(30, ge=1, le=100, description="Number of records per page")
@@ -25,17 +36,26 @@ class SmartSearchRequest(BaseModel):
                 "date_to": "2026-01-31",
                 "source_id": 1,
                 "page": 1,
-                "page_size": 30
+                "page_size": 30,
             }
         }
 
 
 class TransactionSearchRequest(BaseModel):
     """Request model for transaction search"""
-    reference_number: Optional[str] = Field(None, description="Transaction reference number (partial match supported)")
-    account_number: Optional[str] = Field(None, description="Account number (partial match supported)")
-    date_from: Optional[str] = Field(None, description="Start date for date range filter (format: YYYY-MM-DD)")
-    date_to: Optional[str] = Field(None, description="End date for date range filter (format: YYYY-MM-DD)")
+
+    reference_number: Optional[str] = Field(
+        None, description="Transaction reference number (partial match supported)"
+    )
+    account_number: Optional[str] = Field(
+        None, description="Account number (partial match supported)"
+    )
+    date_from: Optional[str] = Field(
+        None, description="Start date for date range filter (format: YYYY-MM-DD)"
+    )
+    date_to: Optional[str] = Field(
+        None, description="End date for date range filter (format: YYYY-MM-DD)"
+    )
     amount: Optional[str] = Field(None, description="Exact amount to search for")
     source_id: Optional[int] = Field(None, description="Source ID")
     page: int = Field(1, ge=1, description="Page number (starts from 1)")
@@ -51,13 +71,14 @@ class TransactionSearchRequest(BaseModel):
                 "amount": "2000",
                 "source_id": 1,
                 "page": 1,
-                "page_size": 30
+                "page_size": 30,
             }
         }
 
 
 class TransactionDetailItem(BaseModel):
     """Detailed transaction item with all fields"""
+
     id: int
     recon_reference_number: Optional[str] = None
     channel_id: Optional[int] = None
@@ -76,7 +97,7 @@ class TransactionDetailItem(BaseModel):
     match_rule_id: Optional[int] = None
     match_rule_name: Optional[str] = None
     match_condition: Optional[str] = None
-    reconciled_status: Optional[bool] = None
+    reconciliation_status: Optional[int] = None
     reconciled_by: Optional[int] = None
     comment: Optional[str] = None
     created_at: Optional[str] = None
@@ -88,6 +109,7 @@ class TransactionDetailItem(BaseModel):
 
 class GroupedTransactions(BaseModel):
     """Grouped transactions by source type"""
+
     atm_transactions: List[TransactionDetailItem] = []
     switch_transactions: List[TransactionDetailItem] = []
     cbs_transactions: List[TransactionDetailItem] = []
@@ -100,6 +122,7 @@ class GroupedTransactions(BaseModel):
 
 class PaginationMeta(BaseModel):
     """Pagination metadata"""
+
     page: int
     page_size: int
     total_records: int
@@ -110,6 +133,7 @@ class PaginationMeta(BaseModel):
 
 class SummaryStats(BaseModel):
     """Summary statistics"""
+
     total_matched: int = 0
     total_partial: int = 0
     total_unmatched: int = 0
@@ -117,6 +141,7 @@ class SummaryStats(BaseModel):
 
 class TransactionSearchResponse(BaseModel):
     """Response model for transaction search with grouped data"""
+
     transactions: List[GroupedTransactions]
     pagination: PaginationMeta
     summary: SummaryStats
@@ -136,11 +161,11 @@ class TransactionSearchResponse(BaseModel):
                                 "currency": "inr",
                                 "match_status": 1,
                                 "source_name": "ATM",
-                                "channel_name": "ATM"
+                                "channel_name": "ATM",
                             }
                         ],
                         "switch_transactions": [],
-                        "cbs_transactions": []
+                        "cbs_transactions": [],
                     }
                 ],
                 "pagination": {
@@ -149,13 +174,12 @@ class TransactionSearchResponse(BaseModel):
                     "total_records": 99,
                     "total_pages": 4,
                     "has_next": True,
-                    "has_previous": False
+                    "has_previous": False,
                 },
                 "summary": {
                     "total_matched": 300,
                     "total_partial": 0,
-                    "total_unmatched": 0
-                }
+                    "total_unmatched": 0,
+                },
             }
         }
-

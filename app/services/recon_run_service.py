@@ -58,7 +58,10 @@ async def get_reconciliation_runs(
         )
 
     derived_status = case(
-        (func.bool_and(Transaction.reconciled_status.is_(True)), "COMPLETED"),
+        (
+            func.bool_and(Transaction.reconciliation_status == 2),
+            "COMPLETED",
+        ),
         else_="IN_PROGRESS",
     )
 
@@ -357,7 +360,7 @@ async def get_full_transactions_by_recon_reference(
             Transaction.created_at,
             Transaction.updated_at,
             Transaction.match_status,
-            Transaction.reconciled_status,
+            Transaction.reconciliation_status,
             Transaction.reconciled_mode,
             Transaction.match_conditon,
             Transaction.comment,
@@ -422,7 +425,7 @@ async def get_transactions_by_recon_group_grouped(
             Transaction.created_at,
             Transaction.updated_at,
             Transaction.match_status,
-            Transaction.reconciled_status,
+            Transaction.reconciliation_status,
             Transaction.reconciled_mode,
             Transaction.match_conditon,
             Transaction.created_by,

@@ -83,3 +83,28 @@ async def get_all_journal_entries(
         offset=offset,
         limit=limit,
     )
+
+
+@router.get("/journal-entries/pending")
+async def get_pending_journal_entries(
+    offset: int = Query(0, ge=0),
+    limit: int = Query(10, ge=1),
+    db: AsyncSession = Depends(get_db),
+):
+    return await TxnJournalEntryService.get_pending_journal_entries(
+        db=db,
+        offset=offset,
+        limit=limit,
+    )
+
+@router.patch("/journal-entries/{recon_ref_no}")
+async def patch_journal_entries(
+    recon_ref_no: str,
+    payload: dict = Body(...),
+    db: AsyncSession = Depends(get_db)
+):
+    return await TxnJournalEntryService.patch_journal_entries(
+        db=db,
+        reconRefNo=recon_ref_no,
+        payload=payload
+    )

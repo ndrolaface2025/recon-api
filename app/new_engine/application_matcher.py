@@ -1177,8 +1177,34 @@ class ApplicationMatcher:
         if isinstance(condition_groups, str):
             # Replace single = with == but avoid replacing == with ====
             condition_expr = condition_groups.replace('==', '@@DOUBLE_EQ@@')  # Protect existing ==
+            condition_expr = condition_expr.replace('equalto', '=')  # Convert equalto to =
             condition_expr = condition_expr.replace('=', '==')  # Convert single = to ==
             condition_expr = condition_expr.replace('@@DOUBLE_EQ@@', '==')  # Restore original ==
+            
+            # FIX: Auto-wrap chained comparisons with AND/OR to prevent syntax errors
+            # AND convert uppercase AND/OR to lowercase and/or (Python requirement)
+            # Example: "A == B == C AND D == E == F" → "(A == B == C) and (D == E == F)"
+            # Split by logical operators while preserving them
+            import re
+            
+            # Split by AND/OR while preserving the operators
+            parts = re.split(r'\s+(AND|OR)\s+', condition_expr, flags=re.IGNORECASE)
+            
+            # If we have multiple parts (logical operators present)
+            if len(parts) > 1:
+                fixed_parts = []
+                for i, part in enumerate(parts):
+                    # Logical operators (AND/OR) - convert to lowercase
+                    if part.upper() in ['AND', 'OR']:
+                        fixed_parts.append(f' {part.lower()} ')
+                    # Wrap comparison expressions in parentheses if they contain ==
+                    elif '==' in part:
+                        fixed_parts.append(f'({part.strip()})')
+                    else:
+                        fixed_parts.append(part)
+                
+                condition_expr = ''.join(fixed_parts)
+                logger.info(f"🔧 Auto-fixed logic expression: {condition_expr}")
         else:
             # Fallback for list format (legacy)
             condition_expr = str(condition_groups)
@@ -1218,8 +1244,9 @@ class ApplicationMatcher:
         
         logger.info(f"🔍 Finding matches: min_sources={min_sources}, total_sources={len(source_names)}, sources={source_names}")
         
-        # Group transactions by matching key using ALL fields from equality conditions
-        # Extract fields that need to match from the logic expression
+        # Group transactions by matching key
+        # CRITICAL FIX: For OR conditions, group by primary field only (usually reference_number)
+        # For AND conditions, group by ALL fields for composite key
         matching_fields = set()
         
         # Parse the expression to find ALL equality fields
@@ -1227,13 +1254,26 @@ class ApplicationMatcher:
         import re
         logic_expr_str = ast.unparse(tree) if hasattr(ast, 'unparse') else condition_expr
         
+        # Check if expression contains OR operator
+        has_or = ' or ' in logic_expr_str.lower()
+        
         # Find all field comparisons - this captures any field used in equality checks
         # Pattern matches: "source.field ==" (captures "field")
         field_patterns = re.findall(r'\.(\w+)\s*==', logic_expr_str)
-        matching_fields.update(field_patterns)
         
-        # Don't remove anything - we need ALL fields that are compared for equality
-        # The composite key will include the RRN (reference_number) plus all other equality fields
+        if has_or:
+            # OR logic: Only group by the FIRST field (primary key - usually reference_number)
+            # This allows matching even when secondary fields differ
+            # Example: "ref == ref OR amount == amount" → group by reference_number only
+            if field_patterns:
+                primary_field = field_patterns[0]  # Take first field as primary
+                matching_fields.add(primary_field)
+                logger.info(f"   ⚠️  OR condition detected - grouping by PRIMARY field only: {primary_field}")
+                logger.info(f"   Other fields {field_patterns[1:]} will be evaluated in condition, not used for grouping")
+        else:
+            # AND logic: Group by ALL fields for composite key
+            # Example: "ref == ref AND amount == amount" → group by (reference_number, amount)
+            matching_fields.update(field_patterns)
         
         # If no fields found (shouldn't happen, but safeguard), at least use reference_number
         if not matching_fields:

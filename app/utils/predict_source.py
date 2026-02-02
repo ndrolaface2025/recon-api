@@ -2681,9 +2681,16 @@ def extract_features(df):
     # Channel column (indicates multi-channel card tracking)
     has_channel_column = int(any(h == "channel" or h == "txn_channel" or h == "txnchannel" for h in headers))
     
-    # More specific ATM indicators
-    has_atm_indicators = int(any("atm" in h or "terminal" in h and ("id" in h or "location" in h) for h in headers))
+    # ATM-specific indicators (these appear in ATM files but NOT in SWITCH files)
+    has_atm_indicators = int(any("atm" in h for h in headers))
+    has_location = int(any("location" in h for h in headers))
+    has_response_desc = int(any("response" in h and "desc" in h or "responsedesc" in h for h in headers))
+    has_atmindex = int(any("atm" in h and "index" in h or "atmindex" in h for h in headers))
     has_transaction_type = int(any("transaction" in h and "type" in h or "transactiontype" in h or "txntype" in h for h in headers))
+    
+    # SWITCH-specific indicators (these appear in SWITCH files but NOT in ATM files)
+    has_source_destination = int(any(h == "source" or h == "destination" for h in headers))
+    has_authid = int(any("authid" in h or (h == "authid") for h in headers))
     
     # PAN should only count for CARD if it's not masked and in ATM context
     # If we have ATM indicators + masked PAN, it's ATM not CARD
@@ -2737,7 +2744,13 @@ def extract_features(df):
         "has_account": int(any("account" in h for h in headers)),
         # Enhanced ATM detection
         "has_atm_indicators": has_atm_indicators,
+        "has_location": has_location,
+        "has_response_desc": has_response_desc,
+        "has_atmindex": has_atmindex,
         "has_transaction_type": has_transaction_type,
+        # Enhanced SWITCH detection
+        "has_source_destination": has_source_destination,
+        "has_authid": has_authid,
         # CBS-specific features
         "has_host_ref": has_host_ref,
         "has_reviver_account": has_reviver_account,
@@ -2758,74 +2771,75 @@ def extract_features(df):
 # ---- TRAIN MODEL ON STARTUP ----
 # Training patterns based on typical file structures
 training_data = pd.DataFrame([
-    # ATM operational files (customer-facing) - has terminal, RRN, auth, transaction type
+    # ATM operational files (customer-facing) - has terminal, RRN, auth, transaction type, location, response_desc, atmindex
     # column_count, has_rrn, has_terminal, has_merchant, has_pan, has_auth, has_balance, has_debit_credit, 
-    # has_mti, has_direction, has_processing_code, has_posted, has_account, has_atm_indicators, has_transaction_type,
-    # has_host_ref, has_reviver_account, has_cbs_codes, has_mobile_number, has_service_name, has_payment_mode, has_narration,
+    # has_mti, has_direction, has_processing_code, has_posted, has_account, has_atm_indicators, has_location, has_response_desc, has_atmindex, has_transaction_type,
+    # has_source_destination, has_authid, has_host_ref, has_reviver_account, has_cbs_codes, has_mobile_number, has_service_name, has_payment_mode, has_narration,
     # has_masked_card, has_card_number, has_fx_rate, has_multiple_currency, has_channel_column, label
-    [14, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "ATM"],
-    [10, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "ATM"],
-    [11, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "ATM"],
-    [12, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "ATM"],
+    [14, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "ATM"],  # Your ATM file pattern
+    [10, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "ATM"],
+    [11, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "ATM"],
+    [12, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "ATM"],
     
-    # SWITCH files (raw switch messages) - ATM channel
-    [12, 1, 1, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "SWITCH"],
-    [13, 1, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "SWITCH"],
-    [14, 1, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "SWITCH"],
+    # SWITCH files (raw switch messages) - ATM channel - has MTI, Direction, ProcessingCode, Source, Destination, AuthID
+    [14, 1, 1, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "SWITCH"],  # Your SWITCH file pattern
+    [12, 1, 1, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "SWITCH"],
+    [13, 1, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "SWITCH"],
+    [14, 1, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "SWITCH"],
     
     # SWITCH files - POS channel (has merchant indicators)
-    [15, 1, 1, 1, 0, 1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "SWITCH"],
-    [16, 1, 0, 1, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "SWITCH"],
+    [15, 1, 1, 1, 0, 1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "SWITCH"],
+    [16, 1, 0, 1, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "SWITCH"],
     
-    # POS transaction files (not switch) - merchant focused
-    [12, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "POS"],
-    [13, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "POS"],
-    [11, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "POS"],
+    # POS transaction files (not switch) - merchant focused, NO ISO 8583 fields
+    [12, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "POS"],
+    [13, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "POS"],
+    [11, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "POS"],
     
     # CARD network files - NEW PATTERNS with masked cards, FX, and channel column
-    [16, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, "CARD"],  # Your file pattern: masked card + FX + channel + DRCR
-    [17, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, "CARD"],  # With description/narration
-    [15, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 1, "CARD"],  # Without FX but with channel
-    [16, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 1, "CARD"],  # Without FX rate but with currencies
-    [18, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, "CARD"],  # With transaction type
+    [16, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, "CARD"],  # masked card + FX + channel + DRCR
+    [17, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, "CARD"],  # With description/narration
+    [15, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 1, "CARD"],  # Without FX but with channel
+    [16, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 1, "CARD"],  # Without FX rate but with currencies
+    [18, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, "CARD"],  # With transaction type
     # Original CARD patterns (pure card data, NO ATM indicators, no masked pattern)
-    [20, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, "CARD"],
-    [18, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, "CARD"],
-    [15, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, "CARD"],
+    [20, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, "CARD"],
+    [18, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, "CARD"],
+    [15, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, "CARD"],
     
     # BANK/CBS posted transactions (with DR/CR columns) - WITHOUT strong CARD indicators
-    [8, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "BANK"],
-    [10, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "BANK"],
-    [10, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "BANK"],
-    [12, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "BANK"],
+    [8, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "BANK"],
+    [10, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "BANK"],
+    [10, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "BANK"],
+    [12, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "BANK"],
     # BANK files with STAN+RRN+Account (ATM transactions in bank format) - NO CARD indicators
-    [16, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "BANK"],
-    [17, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "BANK"],
+    [16, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "BANK"],
+    [17, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "BANK"],
     
     # CBS files (Core Banking System)
-    [8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, "CBS"],
-    [9, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, "CBS"],
-    [10, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 1, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, "CBS"],
-    [11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, "CBS"],
-    [9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, "CBS"],
+    [8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, "CBS"],
+    [9, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, "CBS"],
+    [10, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, "CBS"],
+    [11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, "CBS"],
+    [9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, "CBS"],
     # CBS Card transactions (masked account + card_number + DR/CR + RRN + STAN)
-    [12, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, "CBS"],
-    [11, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, "CBS"],
-    [13, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, "CBS"],
+    [12, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, "CBS"],
+    [11, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, "CBS"],
+    [13, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, "CBS"],
     
     # MOBILE_MONEY / E-Money platform files
-    [11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, "MOBILE_MONEY"],
-    [10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, "MOBILE_MONEY"],
-    [12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, "MOBILE_MONEY"],
-    [13, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, "MOBILE_MONEY"],
-    [10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, "MOBILE_MONEY"],
-    [9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1, 0, 0, 0, 0, 0, "MOBILE_MONEY"],
+    [11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, "MOBILE_MONEY"],
+    [10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, "MOBILE_MONEY"],
+    [12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, "MOBILE_MONEY"],
+    [13, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, "MOBILE_MONEY"],
+    [10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, "MOBILE_MONEY"],
+    [9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1, 0, 0, 0, 0, 0, "MOBILE_MONEY"],
 ], columns=[
     "column_count", "has_rrn", "has_terminal", "has_merchant",
     "has_pan", "has_auth", "has_balance", "has_debit_credit",
     "has_mti", "has_direction", "has_processing_code",
-    "has_posted", "has_account", "has_atm_indicators", "has_transaction_type",
-    "has_host_ref", "has_reviver_account", "has_cbs_codes",
+    "has_posted", "has_account", "has_atm_indicators", "has_location", "has_response_desc", "has_atmindex", "has_transaction_type",
+    "has_source_destination", "has_authid", "has_host_ref", "has_reviver_account", "has_cbs_codes",
     "has_mobile_number", "has_service_name", "has_payment_mode", "has_narration",
     "has_masked_card", "has_card_number", "has_fx_rate", "has_multiple_currency", "has_channel_column",
     "label"
@@ -2843,6 +2857,37 @@ model.fit(X, y_enc)
 def predict_source(df):
     features = extract_features(df)
     df_feat = pd.DataFrame([features])
+
+    # PRE-PROCESSING: Strong SWITCH indicators override ML prediction
+    # Priority 1: ISO 8583 indicators (MTI + Direction + Processing Code) = definitely SWITCH
+    if (features["has_mti"] and features["has_direction"] and features["has_processing_code"]):
+        print(f"Strong SWITCH indicators detected (MTI + Direction + Processing Code). Forcing source to SWITCH.")
+        return {
+            "source": "SWITCH",
+            "confidence": 0.99,  # High confidence for rule-based override
+            "features": features,
+            "override_reason": "ISO 8583 message format detected"
+        }
+    
+    # Priority 2: SWITCH-specific fields (Source/Destination + AuthID) = likely SWITCH
+    if (features["has_source_destination"] and features["has_authid"]):
+        print(f"SWITCH-specific fields detected (Source/Destination + AuthID). Forcing source to SWITCH.")
+        return {
+            "source": "SWITCH",
+            "confidence": 0.95,
+            "features": features,
+            "override_reason": "SWITCH-specific fields detected"
+        }
+    
+    # Priority 3: ATM-specific fields (Location + ResponseDesc + ATMIndex) = definitely ATM
+    if (features["has_location"] and features["has_response_desc"] and features["has_atmindex"]):
+        print(f"Strong ATM indicators detected (Location + ResponseDesc + ATMIndex). Forcing source to ATM.")
+        return {
+            "source": "ATM",
+            "confidence": 0.99,
+            "features": features,
+            "override_reason": "ATM-specific operational fields detected"
+        }
 
     probs = model.predict_proba(df_feat)[0]
     idx = probs.argmax()
@@ -3129,9 +3174,13 @@ def detect_channel(df, source):
 
 
 def predict_source_with_fallback(df):
-    # Check if CSV has a 'source' column with explicit source values
+    # Check if CSV has a 'source' column with explicit source TYPE values
+    # NOTE: Skip if it looks like transaction data (multiple unique values or non-source keywords)
     source_from_data = None
-    source_column_names = ['source', 'Source', 'SOURCE', 'source_type', 'Source_Type']
+    source_column_names = ['source_type', 'Source_Type', 'file_source', 'File_Source']
+    
+    # REMOVED: 'source', 'Source', 'SOURCE' - these are common transaction data columns (e.g., SWITCH "Source" = ISSUER/ACQUIRER)
+    
     for col in source_column_names:
         if col in df.columns:
             # Get unique values from source column
@@ -3145,7 +3194,7 @@ def predict_source_with_fallback(df):
                 valid_sources = ['CBS', 'BANK', 'CARD', 'ATM', 'SWITCH', 'NETWORK', 'POS', 'MOBILE_MONEY', 'WALLET']
                 if source_value_upper in valid_sources:
                     source_from_data = source_value_upper
-                    print(f"✓ Found explicit source in data column '{col}': {source_from_data}")
+                    print(f"✓ Found explicit source in metadata column '{col}': {source_from_data}")
                     break
     
     # Always run ML prediction first

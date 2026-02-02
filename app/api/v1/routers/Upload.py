@@ -9,6 +9,7 @@ from app.services.upload_service import UploadService
 from app.db.repositories.upload import UploadRepository
 from app.db.session import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.dependencies.auth_dependencies import get_current_user_id  # ADD THIS
 
 router = APIRouter(prefix="/api/v1/upload", tags=["Upload"])
 
@@ -22,15 +23,17 @@ async def upload(
     channel_id: int = Form(...),
     source_id: int = Form(...),
     mappings: str = Form(...),
+    user_id: int = Depends(get_current_user_id),  # ADD THIS - Get authenticated user
     service: UploadService = Depends(get_service(UploadService)),
 ):
     mappings_data = json.loads(mappings)
     print(f"[UPLOAD API DEBUG] *** Received upload request ***")
+    print(f"[UPLOAD API DEBUG] Authenticated user_id={user_id}")  # ADD THIS
     print(f"[UPLOAD API DEBUG] channel_id={channel_id}")
     print(f"[UPLOAD API DEBUG] source_id={source_id}")
     print(f"[UPLOAD API DEBUG] file={file.filename}")
     print(f"[UPLOAD API DEBUG] mappings={mappings_data}")
-    return await service.fileUpload(file, channel_id, source_id, mappings_data)
+    return await service.fileUpload(file, channel_id, source_id, mappings_data, user_id)  # PASS user_id
 
 
 @router.post("/with-celery")

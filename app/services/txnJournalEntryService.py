@@ -1,7 +1,8 @@
 from sqlalchemy.orm import Session
 from app.db.models.txnJournalEntry import TxnJournalEntry
 from datetime import date, datetime
-
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
 
 class TxnJournalEntryService:
 
@@ -89,3 +90,28 @@ class TxnJournalEntryService:
         except Exception:
             await db.rollback()
             raise
+
+    @staticmethod
+    async def get_all_journal_entries(
+        db: AsyncSession,
+        offset: int,
+        limit: int,
+    ):
+        total_stmt = select(func.count()).select_from(TxnJournalEntry)
+        total = await db.execute(total_stmt)
+        total_records = total.scalar()
+        stmt = (
+            select(TxnJournalEntry)
+            .offset(offset)
+            .limit(limit)
+        )
+
+        result = await db.execute(stmt)
+        entries = result.scalars().all()
+
+        return {
+            "data": entries,
+            "offset": offset,
+            "limit": limit,
+            "count": total_records,
+        }

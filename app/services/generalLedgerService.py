@@ -4,6 +4,7 @@ from app.db.models.glLedger import GeneralLedger
 from app.db.repositories.generalLedgerRequest import GeneralLedgerCreateRequest
 from typing import List
 from sqlalchemy import select
+from sqlalchemy import select, func
 
 class GeneralLedgerService:
 
@@ -51,15 +52,43 @@ class GeneralLedgerService:
 
         return gl
     
+    # @staticmethod
+    # async def get_all_general_ledgers(
+    #     db: AsyncSession
+    # ) -> List[GeneralLedger]:
+
+    #     stmt = select(GeneralLedger).order_by(GeneralLedger.created_at.desc())
+    #     result = await db.execute(stmt)
+
+    #     return result.scalars().all()
     @staticmethod
     async def get_all_general_ledgers(
-        db: AsyncSession
-    ) -> List[GeneralLedger]:
+        db: AsyncSession,
+        offset: int,
+        limit: int
+    ):
+        # total count
+        total_stmt = select(func.count()).select_from(GeneralLedger)
+        total = await db.execute(total_stmt)
+        total_records = total.scalar()
 
-        stmt = select(GeneralLedger).order_by(GeneralLedger.created_at.desc())
+        # paginated data
+        stmt = (
+            select(GeneralLedger)
+            .order_by(GeneralLedger.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+
         result = await db.execute(stmt)
+        items = result.scalars().all()
 
-        return result.scalars().all()
+        return {
+            "items": items,
+            "total": total_records,
+            "offset": offset,
+            "limit": limit,
+        }
     
 
     @staticmethod

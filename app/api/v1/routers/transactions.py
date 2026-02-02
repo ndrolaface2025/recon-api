@@ -16,6 +16,7 @@ router = APIRouter(prefix="/api/v1/reconciliations", tags=["reconciliations"])
 @router.get("/transactions")
 async def get_transactions(
     channel_id: Optional[int] = Query(None, description="Filter by channel ID"),
+    network_id: Optional[int] = Query(None, description="Filter by channel ID"),
     match_status: Optional[str] = Query(None, description="Filter by status: matched, partial, unmatched"),
     source_id: Optional[int] = Query(None, description="Filter by source ID"),
     date_from: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
@@ -55,6 +56,9 @@ async def get_transactions(
         # Filter by channel
         if channel_id is not None:
             conditions.append(Transaction.channel_id == channel_id)
+
+        if network_id is not None:
+            conditions.append(Transaction.network_id == network_id)
         
         # Filter by source
         if source_id is not None:
@@ -129,6 +133,7 @@ async def get_transactions(
                 "recon_reference_number": txn.recon_reference_number,
                 "channel_id": txn.channel_id,
                 "channel_name": channel_name,
+                "network_id": txn.network_id,
                 "source_id": txn.source_id,
                 "source_name": source_name,
                 "reference_number": txn.reference_number,

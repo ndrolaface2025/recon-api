@@ -1,5 +1,16 @@
-from sqlalchemy import Column, BigInteger, String, Boolean, Integer, ForeignKey, Text, TIMESTAMP, func
+from sqlalchemy import (
+    Column,
+    BigInteger,
+    String,
+    Boolean,
+    Integer,
+    ForeignKey,
+    Text,
+    TIMESTAMP,
+    func,
+)
 from app.db.base import Base
+
 
 class Transaction(Base):
     __tablename__ = "tbl_txn_transactions"
@@ -15,12 +26,16 @@ class Transaction(Base):
     date = Column(String(50), nullable=True)
     account_number = Column(String(50), nullable=True)
     ccy = Column(String(10), nullable=True)
-    otherDetails = Column("otherDetails", Text, nullable=True)  # Explicitly quoted to match DB column case
+    otherDetails = Column(
+        "otherDetails", Text, nullable=True
+    )  # Explicitly quoted to match DB column case
     recon_group_number = Column(String(255), nullable=True)
-    file_transactions_id = Column(BigInteger, ForeignKey("tbl_upload_files.id"), nullable=True)
+    file_transactions_id = Column(
+        BigInteger, ForeignKey("tbl_upload_files.id"), nullable=True
+    )
     network_id = Column(BigInteger, ForeignKey("tbl_cfg_networks.id"), nullable=True)
     reconciled_status = Column(Boolean, nullable=True)
-    reconciled_mode = Column(Boolean, nullable=True)
+    reconciled_mode = Column(Integer, nullable=True)
     reconciled_by = Column(BigInteger, ForeignKey("tbl_cfg_users.id"), nullable=True)
     match_rule_id = Column(BigInteger, nullable=True)
     match_conditon = Column(Text, nullable=True)
@@ -28,6 +43,8 @@ class Transaction(Base):
     comment = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=True)
     created_by = Column(BigInteger, ForeignKey("tbl_cfg_users.id"), nullable=True)
-    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=True)
+    updated_at = Column(
+        TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=True
+    )
     updated_by = Column(BigInteger, ForeignKey("tbl_cfg_users.id"), nullable=True)
     version_number = Column(Integer, nullable=True)

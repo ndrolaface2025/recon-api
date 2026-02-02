@@ -19,7 +19,8 @@ class MatchingRuleRepository:
             tolerance=rule_data.tolerance,
             status=rule_data.status,
             created_by=rule_data.created_by,
-            version_number=1
+            version_number=1,
+            network_id=rule_data.network_id,
         )
         db.add(rule)
         await db.commit()
@@ -113,4 +114,25 @@ class MatchingRuleRepository:
             .where(MatchingRuleConfig.status == 1)
             .order_by(MatchingRuleConfig.created_at.desc())
         )
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def get_by_channel_and_network(
+        db: AsyncSession,
+        channel_id: int,
+        network_id: Optional[int] = None
+    ) -> List[MatchingRuleConfig]:
+        """Get all active matching rules for a specific channel and optional network"""
+        query = select(MatchingRuleConfig).where(
+            MatchingRuleConfig.channel_id == channel_id,
+            MatchingRuleConfig.status == 1
+        )
+        
+        # Add network filter if provided
+        if network_id is not None:
+            query = query.where(MatchingRuleConfig.network_id == network_id)
+        
+        query = query.order_by(MatchingRuleConfig.created_at.desc())
+        
+        result = await db.execute(query)
         return list(result.scalars().all())

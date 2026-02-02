@@ -21,6 +21,7 @@ from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 import re
 import paramiko
+from app.config import settings
 
 
 @dataclass
@@ -139,10 +140,7 @@ class FilePickupService:
 
         # Delegate to real upload logic
         await self.upload_service.fileUpload(
-            upload_file,
-            channel["id"],
-            source["id"],
-            mappings,
+            upload_file, channel["id"], source["id"], mappings, settings.SYSTEM_USER_ID
         )
 
     @staticmethod

@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     FLEXCUBE_DB_HOST: str = "localhost"
     FLEXCUBE_DB_PORT: int = 1521
     FLEXCUBE_DB_SERVICE: str
+
+    SYSTEM_USER_ID: int
+
     REDIS_URL: Optional[str] = None
     OPENAI_API_KEY: str
     JWT_SECRET: str = "change-me"

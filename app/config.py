@@ -14,11 +14,11 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     DATABASE_URL: str
     # Flexcube DB (Oracle)
-    FLEXCUBE_DB_USER: str
-    FLEXCUBE_DB_PASSWORD: str
-    FLEXCUBE_DB_HOST: str = "localhost"
-    FLEXCUBE_DB_PORT: int = 1521
-    FLEXCUBE_DB_SERVICE: str
+    FLEXCUBE_DB_USER: Optional[str] = None
+    FLEXCUBE_DB_PASSWORD: Optional[str] = None
+    FLEXCUBE_DB_HOST: Optional[str] = None
+    FLEXCUBE_DB_PORT: Optional[int] = None
+    FLEXCUBE_DB_SERVICE: Optional[str] = None
 
     SYSTEM_USER_ID: int
 

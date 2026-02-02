@@ -104,7 +104,7 @@ class ManualTransactionService:
         return {"transactions": txns, "recon_reference_number": recon_ref}
 
     @staticmethod
-    async def get_all_json(db):
+    async def get_all_json(db, userId: int):
         stmt = (
             select(
                 ManualTransaction.id,
@@ -119,7 +119,8 @@ class ManualTransactionService:
             .join(ChannelConfig, ChannelConfig.id == ManualTransaction.channel_id)
             .join(SourceConfig, SourceConfig.id == ManualTransaction.source_id)
             .where(
-                ManualTransaction.reconciliation_status == ReconciliationStatus.PENDING
+                ManualTransaction.reconciliation_status == ReconciliationStatus.IN_PROGRESS, 
+                ManualTransaction.created_by == userId
             )
             .order_by(ManualTransaction.id.desc())
         )

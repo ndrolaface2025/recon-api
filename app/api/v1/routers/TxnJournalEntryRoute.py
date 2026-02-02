@@ -108,3 +108,15 @@ async def patch_journal_entries(
         reconRefNo=recon_ref_no,
         payload=payload
     )
+
+@router.patch("/journal-entries/pending/{recon_ref_no}")
+async def patch_pending_entries(
+    recon_ref_no: str,
+    payload: dict = Body(...),
+    db: AsyncSession = Depends(get_db)
+):
+    return await TxnJournalEntryService.patch_pending_entries(
+        db=db,
+        reconRefNo=recon_ref_no,
+        payload=payload
+    )

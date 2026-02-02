@@ -94,9 +94,11 @@ async def patch_manual_transactions(
 #         username="Ackim"
 #     )
 @router.get("/manual-transactions")
-async def get_all_manual_transactions(db=Depends(get_db)):
-    return await ManualTransactionService.get_all_json(db)
-
+async def get_all_manual_transactions(
+    user_id: int,
+    db=Depends(get_db),
+):
+    return await ManualTransactionService.get_all_json(db, user_id)
 
 @router.post("/manual-transactions")
 async def create_manual_transaction(

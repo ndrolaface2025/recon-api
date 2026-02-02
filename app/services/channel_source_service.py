@@ -34,6 +34,27 @@ class ChannelSourceService:
             return {
                 "status": "success",
                 "errors": False,
+                "message": "List fetched successfully",
+                "result": {
+                    "data": getResult.get("data", []),
+                }
+            }
+
+        return {
+            "status": "error",
+            "errors": True,
+            "message": getResult.get("message", "Failed to fetch file list"),
+            "result": {
+                "data": [],
+            }
+        }
+    
+    async def get_channel_network_list(self):
+        getResult =  await ChannelSourceRepository.getChannelNetworkList(self.db)
+        if getResult.get("status") == "success":
+            return {
+                "status": "success",
+                "errors": False,
                 "message": "File list fetched successfully",
                 "result": {
                     "data": getResult.get("data", []),

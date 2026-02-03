@@ -21,6 +21,7 @@ from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 import re
 import paramiko
+from app.config import settings
 
 
 @dataclass
@@ -139,10 +140,7 @@ class FilePickupService:
 
         # Delegate to real upload logic
         await self.upload_service.fileUpload(
-            upload_file,
-            channel["id"],
-            source["id"],
-            mappings,
+            upload_file, channel["id"], source["id"], mappings, settings.SYSTEM_USER_ID
         )
 
     @staticmethod
@@ -198,20 +196,34 @@ class FilePickupService:
             user, password = "anonymous", ""
 
         ftp = FTP(timeout=config.api_time_out)
+
+        ftp.set_pasv(True)
+
+        ftp.use_epsv = False
+
         ftp.connect(parsed.hostname, parsed.port or 21)
         ftp.login(user=user, passwd=password)
-        ftp.cwd(parsed.path or "/")
+
+        path = parsed.path.lstrip("/") or "."
+        ftp.cwd(path)
 
         try:
-            for name in ftp.nlst():
-                buf = bytearray()
-                ftp.retrbinary(f"RETR {name}", buf.extend)
+            names = []
+            ftp.retrlines("LIST", lambda line: names.append(line.split()[-1]))
 
-                upload_file = self._build_upload_file(name, bytes(buf))
+            for name in names:
+                tmp = SpooledTemporaryFile()
+                ftp.retrbinary(f"RETR {name}", tmp.write)
+                tmp.seek(0)
+
+                upload_file = UploadFile(filename=name, file=tmp)
                 await self._process_file(upload_file)
 
         finally:
-            ftp.quit()
+            try:
+                ftp.quit()
+            except Exception:
+                ftp.close()
 
     async def _pickup_sftp(self, config: UploadApiConfig):
         parsed = urlparse(config.base_url)

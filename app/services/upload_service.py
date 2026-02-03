@@ -396,7 +396,7 @@ class UploadService:
         ext = os.path.splitext(filename)[1].lower()
         return ext in ALLOWED_EXTENSIONS
 
-    async def fileUpload(self, file, channel_id: int, source_id: int, mappings: dict):
+    async def fileUpload(self, file, channel_id: int, source_id: int, mappings: dict, user_id: int):
         try:
             if not file.filename:
                 raise HTTPException(status_code=400, detail="No file selected")
@@ -414,9 +414,8 @@ class UploadService:
             else:
                 df = pd.read_excel(io.BytesIO(contents))
 
-            # get user details
-            userDetail = await UserRepository.getUserDetails(self.db)
-            print("User Details:", userDetail)
+            # Use authenticated user_id instead of fetching from repository
+            print(f"[UPLOAD SERVICE] Using authenticated user_id: {user_id}")
             # Replace NaN with None (JSON safe)
             df = df.where(pd.notnull(df), "")
 
@@ -445,7 +444,7 @@ class UploadService:
                 "duplicate_records": 0,
                 "progress_percentage": 0.0,
                 "version_number": 1,
-                "created_by": userDetail,
+                "created_by": user_id,  # CHANGED: Use authenticated user_id
             }
             # recon_ref = f"RECON{''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(12))}"
             fileSaveDetail = await UploadRepository.saveUploadedFileDetails(
@@ -464,8 +463,8 @@ class UploadService:
                 "channel_id": channel_id,
                 "source_id": source_id,
                 "file_transactions_id": fileSaveDetail.get("insertedId"),
-                "created_by": userDetail,
-                "updated_by": userDetail,
+                "created_by": user_id,  # CHANGED: Use authenticated user_id
+                "updated_by": user_id,  # CHANGED: Use authenticated user_id
                 "version_number": 1,
             }
 
@@ -523,7 +522,7 @@ class UploadService:
                 total_records=total_records,
                 channel_id=channel_id,
                 source_id=source_id,
-                user_detail=userDetail,
+                user_detail=user_id,  # CHANGED: Use authenticated user_id
                 column_mappings={
                     "date": getDateTimeColumnName,
                     "amount": getAmountColumnName,

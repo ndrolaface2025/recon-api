@@ -4266,8 +4266,8 @@ class UploadRepository:
                     "source_id": fileJson["source_id"],
                     "otherDetails": json.dumps(row, default=str),
                     "file_transactions_id": fileJson["file_transactions_id"],
-                    "created_by": 1,
-                    "updated_by": 1,
+                    "created_by": fileJson.get("created_by", 2),  # CHANGED: Use authenticated user from fileJson
+                    "updated_by": fileJson.get("updated_by", 2),  # CHANGED: Use authenticated user from fileJson
                     "version_number": fileJson["version_number"],
                     "created_at": current_timestamp,
                     "updated_at": current_timestamp,

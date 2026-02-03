@@ -4,7 +4,9 @@ from datetime import date, datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from fastapi import HTTPException
-from sqlalchemy import select, update
+from sqlalchemy import select, update, exists
+from app.db.models.transactions import Transaction
+from app.services.transactionService import TransactionService
 
 class TxnJournalEntryService:
 
@@ -125,6 +127,38 @@ class TxnJournalEntryService:
 
         await db.commit()
 
+        #from here
+        is_posted = await db.scalar(
+            select(
+                exists().where(
+                    TxnJournalEntry.recon_reference_number
+                    == reconRefNo,
+                    TxnJournalEntry.post_status == "POST"
+                )
+            )
+        )
+
+        if is_posted:
+            tx_result = await db.execute(
+                select(Transaction.id)
+                .where(Transaction.recon_reference_number == reconRefNo)
+            )
+            print("reconRefNo",reconRefNo);
+            transaction_ids = tx_result.scalars().all()
+
+            if transaction_ids:
+                await TransactionService.patch(
+                    db=db,
+                    ids=transaction_ids,
+                    recon_reference_number=reconRefNo,
+                    payload={
+                        "comment": "Matched by passing journal entries",
+                        "patch_type": "Manual"
+                    },
+                    match_status=1
+                )
+
+        #till here
         return {
             "message": "Journal entries updated successfully",
             "recon_ref_no": reconRefNo,
@@ -137,63 +171,58 @@ class TxnJournalEntryService:
         reconRefNo: str,
         payload: dict
     ):
-        # 1. Extract entries from payload
-        entries_data = payload.pop("entries", [])
-        if not entries_data:
-            raise HTTPException(400, "entries list is required")
+        # 1. Fetch header records
+        txns = (
+            await db.execute(
+                select(TxnJournalEntry)
+                .where(TxnJournalEntry.recon_reference_number == reconRefNo)
+            )
+        ).scalars().all()
 
-        try:
-            # 2. Update Header-level fields (post_status, auth_status, comments)
-            # We apply these to ALL rows with this recon reference
-            if payload:
-                header_stmt = (
-                    update(TxnJournalEntry)
-                    .where(TxnJournalEntry.recon_reference_number == reconRefNo)
-                    .values(**payload)
-                )
-                await db.execute(header_stmt)
+        if not txns:
+            raise HTTPException(
+                status_code=404,
+                detail="Recon Reference Number not found"
+            )
 
-            # 3. Update individual entries (account_number, amounts, etc.)
-            updated_count = 0
-            for entry_dict in entries_data:
-                entry_id = entry_dict.pop("id", None)
-                if not entry_id:
+        # 2. Update HEADER fields only
+        for txn in txns:
+            for field, value in payload.items():
+                if field != "entries" and hasattr(TxnJournalEntry, field):
+                    setattr(txn, field, value)
+
+        await db.commit()
+
+        # 3. Update ENTRY rows (this was missing)
+        entries = payload.get("entries", [])
+
+        for entry in entries:
+            entry_id = entry.get("id")
+            if not entry_id:
+                continue
+
+            entry_update_data = {}
+
+            for k, v in entry.items():
+                if k == "id":
                     continue
 
-                # Fetch the specific record from the DB
-                # This ensures we are updating the correct row and validates existence
-                stmt = select(TxnJournalEntry).where(
-                    TxnJournalEntry.id == entry_id,
-                    TxnJournalEntry.recon_reference_number == reconRefNo
+                # ✅ FIX: convert date string to datetime.date
+                if k in ("post_date", "trn_dt") and isinstance(v, str):
+                    v = date.fromisoformat(v)
+
+                entry_update_data[k] = v
+
+            if entry_update_data:
+                await db.execute(
+                    update(TxnJournalEntry)
+                    .where(TxnJournalEntry.id == entry_id)
+                    .values(**entry_update_data)
                 )
-                result = await db.execute(stmt)
-                db_entry = result.scalar_one_or_none()
 
-                if db_entry:
-                    for key, value in entry_dict.items():
-                        # Check if the attribute exists on the model to avoid crashes
-                        if hasattr(db_entry, key):
-                            # Data Type Fix: Ensure post_date is a date object if it's a string
-                            if key == "post_date" and isinstance(value, str):
-                                try:
-                                    value = datetime.strptime(value, "%Y-%m-%d").date()
-                                except ValueError:
-                                    pass # Keep as string if format is weird
-                            
-                            # Apply the change
-                            setattr(db_entry, key, value)
-                    
-                    updated_count += 1
+        await db.commit()
 
-            # 4. Commit all changes at once
-            await db.commit()
-
-            return {
-                "message": "Journal entries updated successfully",
-                "recon_ref_no": reconRefNo,
-                "updated_count": updated_count
-            }
-
-        except Exception as e:
-            await db.rollback()
-            raise HTTPException(500, f"Update failed: {str(e)}")
+        return {
+            "recon_reference_number": reconRefNo,
+            "message": "Header and entries updated successfully"
+        }

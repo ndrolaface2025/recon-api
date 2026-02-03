@@ -3707,6 +3707,7 @@
 import json
 from typing import Any, Dict, List
 from datetime import datetime, timedelta
+import pandas as pd
 
 from sqlalchemy import Integer, cast, delete, func, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -4341,7 +4342,8 @@ class UploadRepository:
                         "NaT",
                         "None",
                     ]:
-                        if hasattr(date_value, "strftime"):
+                        # Check if it's a valid datetime (not NaT) before calling strftime
+                        if hasattr(date_value, "strftime") and pd.notna(date_value):
                             data["date"] = date_value.strftime("%Y-%m-%d %H:%M:%S")
                         else:
                             data["date"] = str(date_value)
@@ -4385,7 +4387,8 @@ class UploadRepository:
                             and str(row[field]).strip()
                         ):
                             date_value = row[field]
-                            if hasattr(date_value, "strftime"):
+                            # Check if it's a valid datetime (not NaT) before calling strftime
+                            if hasattr(date_value, "strftime") and pd.notna(date_value):
                                 data["date"] = date_value.strftime("%Y-%m-%d %H:%M:%S")
                             else:
                                 data["date"] = str(date_value)

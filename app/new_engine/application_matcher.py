@@ -1895,7 +1895,7 @@ class ApplicationMatcher:
                 match_status = 2  # Partial match
                 actual_match_type = "PARTIAL"
                 reconciled_mode = None
-                recon_reference_number = None
+                recon_reference_number = self.generate_reference()
                 reconciled_status = None
             else:
                 match_status = 1  # Full match

@@ -9,6 +9,7 @@ class GeneralLedger(Base):
     general_ledger = Column(String(50), index=True)
     gl_role = Column(String(255), nullable=True)
     channel_id = Column(String(50), nullable=True, index=True)
+    status = Column(Boolean, nullable = False, index=True)
     apply_to_all_channels = Column(Boolean, nullable=True, default=False)
     gl_description = Column(String(255), nullable=True)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=True)

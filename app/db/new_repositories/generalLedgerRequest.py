@@ -5,5 +5,6 @@ class GeneralLedgerCreateRequest(BaseModel):
     general_ledger: str
     gl_role: Optional[str] = None
     channel_id: Optional[str] = None
+    status: bool = True
     apply_to_all_channels: bool = False
     gl_description: Optional[str] = None

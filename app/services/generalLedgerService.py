@@ -34,12 +34,12 @@ class GeneralLedgerService:
                     status_code=400,
                     detail="channel_id is required when 'Apply to all channels' is unchecked"
                 )
-            channel_id = payload.channel_id
 
         gl = GeneralLedger(
             general_ledger=payload.general_ledger,
             gl_role=payload.gl_role,
-            channel_id=channel_id,
+            channel_id= payload.channel_id,
+            status = payload.status,
             apply_to_all_channels=payload.apply_to_all_channels,
             gl_description=payload.gl_description,
             created_by=user_id,
@@ -110,6 +110,46 @@ class GeneralLedgerService:
         await db.delete(gl)
         await db.commit()
 
+    # @staticmethod
+    # async def update_general_ledger_by_id(
+    #     db: AsyncSession,
+    #     gl_id: int,
+    #     payload: GeneralLedgerCreateRequest,
+    #     user_id: int,
+    # ) -> GeneralLedger:
+
+    #     stmt = select(GeneralLedger).where(GeneralLedger.id == gl_id)
+    #     result = await db.execute(stmt)
+    #     gl = result.scalar_one_or_none()
+
+    #     if not gl:
+    #         raise HTTPException(
+    #             status_code=404,
+    #             detail="General Ledger not found"
+    #         )
+
+    #     if payload.apply_to_all_channels:
+    #         gl.channel_id = None
+    #     else:
+    #         if not payload.channel_id:
+    #             raise HTTPException(
+    #                 status_code=400,
+    #                 detail="channel_id is required when 'Apply to all channels' is unchecked"
+    #             )
+    #         gl.channel_id = payload.channel_id
+    #         gl.status = payload.status
+
+    #     gl.general_ledger = payload.general_ledger
+    #     gl.gl_role = payload.gl_role
+    #     gl.apply_to_all_channels = payload.apply_to_all_channels
+    #     gl.gl_description = payload.gl_description
+    #     gl.updated_by = user_id
+
+    #     await db.commit()
+    #     await db.refresh(gl)
+
+    #     return gl
+
     @staticmethod
     async def update_general_ledger_by_id(
         db: AsyncSession,
@@ -128,22 +168,31 @@ class GeneralLedgerService:
                 detail="General Ledger not found"
             )
 
-        # Apply-to-all logic
-        if payload.apply_to_all_channels:
-            gl.channel_id = None
-        else:
-            if not payload.channel_id:
-                raise HTTPException(
-                    status_code=400,
-                    detail="channel_id is required when 'Apply to all channels' is unchecked"
-                )
-            gl.channel_id = payload.channel_id
+        if payload.apply_to_all_channels is not None:
+            if payload.apply_to_all_channels:
+                gl.channel_id = None
+                gl.apply_to_all_channels = True
+            else:
+                if payload.channel_id is None:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="channel_id is required when 'Apply to all channels' is unchecked"
+                    )
+                gl.channel_id = payload.channel_id
+                gl.apply_to_all_channels = False
 
-        # Update fields
-        gl.general_ledger = payload.general_ledger
-        gl.gl_role = payload.gl_role
-        gl.apply_to_all_channels = payload.apply_to_all_channels
-        gl.gl_description = payload.gl_description
+        if payload.status is not None:
+            gl.status = payload.status
+
+        if payload.general_ledger is not None:
+            gl.general_ledger = payload.general_ledger
+
+        if payload.gl_role is not None:
+            gl.gl_role = payload.gl_role
+
+        if payload.gl_description is not None:
+            gl.gl_description = payload.gl_description
+
         gl.updated_by = user_id
 
         await db.commit()

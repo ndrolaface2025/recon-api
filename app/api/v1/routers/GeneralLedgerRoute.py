@@ -21,17 +21,8 @@ async def create_general_ledger(
         user_id=temp_id
     )
 
-# @router.get("/general-ledger")
-# async def get_all_general_ledgers(
-#     db: AsyncSession = Depends(get_db),
-# ):
-#     return await GeneralLedgerService.get_all_general_ledgers(db)
 @router.get("/general-ledger")
-# async def get_all_general_ledgers(
-#     offset: int = Query(0, ge=0),
-#     limit: int = Query(10, ge=1, le=100),
-#     db: AsyncSession = Depends(get_db),
-# ):
+
 async def get_all_general_ledgers(
     offset: int = Query(0, ge=0),
     limit: int = Query(10, ge=1),

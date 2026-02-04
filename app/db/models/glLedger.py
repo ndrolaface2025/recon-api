@@ -15,3 +15,4 @@ class GeneralLedger(Base):
     created_by = Column(BigInteger, nullable=True)
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=True)
     updated_by = Column(BigInteger, nullable=True)
+    status = Column(Boolean, nullable=False, index=True)

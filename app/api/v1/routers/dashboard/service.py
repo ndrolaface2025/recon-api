@@ -9,20 +9,20 @@ class DashboardService:
     async def get_match_status_percentage(db: AsyncSession, current_user, payload) -> dict:
         query = (
                 select(
-                    func.count(func.distinct(Transaction.recon_reference_number)).label("total_transactions"),
+                    func.count(Transaction.recon_reference_number).label("total_transactions"),
 
-                    func.count(func.distinct(Transaction.recon_reference_number))
+                    func.count(Transaction.recon_reference_number)
                     .filter(Transaction.match_status == 1)
                     .label("matched_count"),
 
-                    func.count(func.distinct(Transaction.source_id))
+                    func.count(Transaction.source_id)
                     .label("total_sources"),
 
-                    func.count(func.distinct(Transaction.recon_reference_number))
+                    func.count(Transaction.recon_reference_number)
                     .filter(Transaction.match_status == 2)
                     .label("partial_count"),
 
-                    func.count(func.distinct(Transaction.recon_reference_number.is_(None)))
+                    func.count(Transaction.recon_reference_number.is_(None))
                     .filter(Transaction.match_status == 0)
                     .label("unmatched_count")
                 )

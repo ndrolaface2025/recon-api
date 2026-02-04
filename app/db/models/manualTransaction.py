@@ -1,7 +1,19 @@
-from sqlalchemy import Column, BigInteger, String, Date, Numeric, Boolean, Text, TIMESTAMP, ForeignKey
+from sqlalchemy import (
+    Column,
+    BigInteger,
+    SmallInteger,
+    String,
+    Date,
+    Numeric,
+    Boolean,
+    Text,
+    TIMESTAMP,
+    ForeignKey,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 from app.db.base import Base
+
 
 class ManualTransaction(Base):
     __tablename__ = "tbl_txn_manual"
@@ -19,8 +31,10 @@ class ManualTransaction(Base):
     ccy = Column(String(10))
     amount = Column(Numeric)
     json_file = Column(JSONB)
-    file_transactions_id = Column(BigInteger, ForeignKey("tbl_upload_files.id"), nullable=True)
-    reconciled_status = Column(Boolean, nullable=True)
+    file_transactions_id = Column(
+        BigInteger, ForeignKey("tbl_upload_files.id"), nullable=True
+    )
+    reconciliation_status = Column(SmallInteger, nullable=False, default=0)
     reconciled_by = Column(BigInteger, ForeignKey("tbl_cfg_users.id"), nullable=True)
     comment = Column(Text)
     is_journal_entry = Column(Boolean)

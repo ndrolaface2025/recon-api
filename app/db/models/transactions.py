@@ -1,6 +1,7 @@
 from sqlalchemy import (
     Column,
     BigInteger,
+    SmallInteger,
     String,
     Boolean,
     Integer,
@@ -34,7 +35,7 @@ class Transaction(Base):
         BigInteger, ForeignKey("tbl_upload_files.id"), nullable=True
     )
     network_id = Column(BigInteger, ForeignKey("tbl_cfg_networks.id"), nullable=True)
-    reconciled_status = Column(Boolean, nullable=True)
+    reconciliation_status = Column(SmallInteger, nullable=False, default=0)
     reconciled_mode = Column(Integer, nullable=True)
     reconciled_by = Column(BigInteger, ForeignKey("tbl_cfg_users.id"), nullable=True)
     match_rule_id = Column(BigInteger, nullable=True)

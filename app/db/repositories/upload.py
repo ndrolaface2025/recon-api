@@ -3709,7 +3709,7 @@ from typing import Any, Dict, List
 from datetime import datetime, timedelta
 import pandas as pd
 
-from sqlalchemy import Integer, cast, delete, func, select, tuple_, update
+from sqlalchemy import Integer, cast, delete, func, select, text, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.channel_config import ChannelConfig
@@ -5192,6 +5192,8 @@ class UploadRepository:
             # 3️⃣ TEMPORARY: Remove the file upload record itself
             # Future behavior: file records should be immutable and never hard-deleted
             await db.execute(delete(UploadFile).where(UploadFile.id == file_id))
+
+            await db.execute(text("TRUNCATE TABLE tbl_txn_manual RESTART IDENTITY CASCADE"))
 
             await db.commit()
             return True

@@ -538,7 +538,12 @@ async def evaluate_and_dispatch_file_pickups():
             upload_api_id = scheduler["upload_api_id"]
 
             api_result = await upload_api_service.get_by_id(upload_api_id)
-            api_cfg = api_result.get("result", {}).get("data")
+
+            if not api_result.get("success"):
+                print("❌❌❌ UPLOAD API NOT FOUND — SKIPPING ❌❌❌")
+                continue
+
+            api_cfg = api_result.get("data")
 
             if not api_cfg:
                 print("❌❌❌ UPLOAD API NOT FOUND — SKIPPING ❌❌❌")

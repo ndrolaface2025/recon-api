@@ -21,10 +21,20 @@ class UploadAPIConfigRepository:
 
         except Exception as e:
             await db.rollback()
-            return {"status": "error", "message": str(e)}
+            return {
+                "status": "error",
+                "message": str(e),
+            }
 
     @staticmethod
     async def get_all(db: AsyncSession, filters: dict):
+        """
+        Repository-level list fetch.
+        - Applies filters
+        - Applies pagination
+        - Returns raw data + total count
+        (NO API response shaping here)
+        """
         try:
             stmt = select(UploadAPIConfig)
 
@@ -48,18 +58,29 @@ class UploadAPIConfigRepository:
             count_stmt = select(func.count()).select_from(stmt.subquery())
             total = (await db.execute(count_stmt)).scalar() or 0
 
-            stmt = stmt.order_by(UploadAPIConfig.created_at.desc())
+            page = int(filters.get("page", 1))
+            page_size = int(filters.get("page_size", 20))
+            offset = (page - 1) * page_size
+
+            stmt = (
+                stmt.order_by(UploadAPIConfig.created_at.desc())
+                .offset(offset)
+                .limit(page_size)
+            )
+
             rows = (await db.execute(stmt)).scalars().all()
 
             return {
                 "status": "success",
-                "total": total,
-                "count": len(rows),
                 "data": [UploadAPIConfigRepository._serialize(r) for r in rows],
+                "total": total,
             }
 
         except Exception as e:
-            return {"status": "error", "message": str(e)}
+            return {
+                "status": "error",
+                "message": str(e),
+            }
 
     @staticmethod
     async def get_by_id(db: AsyncSession, config_id: int):
@@ -70,9 +91,15 @@ class UploadAPIConfigRepository:
         ).scalar_one_or_none()
 
         if not cfg:
-            return {"status": "error", "message": "Upload API config not found"}
+            return {
+                "status": "error",
+                "message": "Upload API config not found",
+            }
 
-        return {"status": "success", "data": UploadAPIConfigRepository._serialize(cfg)}
+        return {
+            "status": "success",
+            "data": UploadAPIConfigRepository._serialize(cfg),
+        }
 
     @staticmethod
     async def get_by_channel_id(db: AsyncSession, channel_id: int):
@@ -112,7 +139,10 @@ class UploadAPIConfigRepository:
 
         except Exception as e:
             await db.rollback()
-            return {"status": "error", "message": str(e)}
+            return {
+                "status": "error",
+                "message": str(e),
+            }
 
     @staticmethod
     async def disable(db: AsyncSession, id: int):

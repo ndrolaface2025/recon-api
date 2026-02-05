@@ -76,17 +76,6 @@ async def create_upload_api_config(
     payload: Dict[str, Any] = Body(
         ...,
         description="Upload API configuration payload",
-        example={
-            "channel_id": 1,
-            "api_name": "Transaction Upload",
-            "method": "FTP",
-            "base_url": "ftp://example.com/inbound",
-            "auth_type": "BASIC",
-            "auth_token": "username:password",
-            "api_time_out": 30,
-            "max_try": 3,
-            "is_active": 1,
-        },
     ),
     service: UploadAPIConfigService = Depends(get_service(UploadAPIConfigService)),
 ):
@@ -103,10 +92,6 @@ async def update_upload_api_config(
     payload: Dict[str, Any] = Body(
         ...,
         description="Fields to update",
-        example={
-            "api_name": "Updated Transaction Upload",
-            "is_active": 0,
-        },
     ),
     service: UploadAPIConfigService = Depends(get_service(UploadAPIConfigService)),
 ):

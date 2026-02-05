@@ -79,13 +79,6 @@ async def create_scheduler(
     payload: Dict[str, Any] = Body(
         ...,
         description="Upload scheduler configuration payload",
-        example={
-            "upload_api_id": 1,
-            "scheduler_name": "Daily Upload",
-            "cron_expression": "0 2 * * *",
-            "timezone": "UTC",
-            "is_active": 1,
-        },
     ),
     service: UploadSchedulerConfigService = Depends(
         get_service(UploadSchedulerConfigService)
@@ -105,10 +98,6 @@ async def update_scheduler(
     payload: Dict[str, Any] = Body(
         ...,
         description="Fields to update in the upload scheduler configuration",
-        example={
-            "scheduler_name": "Updated Daily Upload",
-            "is_active": 0,
-        },
     ),
     service: UploadSchedulerConfigService = Depends(
         get_service(UploadSchedulerConfigService)

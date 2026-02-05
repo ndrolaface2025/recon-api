@@ -41,6 +41,9 @@ class UploadAPIConfigRepository:
             if filters.get("channel_id") is not None:
                 stmt = stmt.where(UploadAPIConfig.channel_id == filters["channel_id"])
 
+            if filters.get("api_id") is not None:
+                stmt = stmt.where(UploadAPIConfig.id == filters["api_id"])
+
             if filters.get("api_name"):
                 stmt = stmt.where(
                     UploadAPIConfig.api_name.ilike(f"%{filters['api_name']}%")

@@ -33,6 +33,7 @@ class UploadAPIConfigService:
         self,
         *,
         channel_id: int | None = None,
+        api_id: int | None = None,
         api_name: str | None = None,
         method: str | None = None,
         auth_type: str | None = None,
@@ -42,6 +43,7 @@ class UploadAPIConfigService:
     ):
         filters = {
             "channel_id": channel_id,
+            "api_id": api_id,
             "api_name": api_name,
             "method": method,
             "auth_type": auth_type,

@@ -2,27 +2,33 @@
 file_pickup_service.py
 ----------------------
 
-Picks files from external locations (LOCAL / HTTP / FTP / SFTP),
-runs detect-source on them, then uploads using upload logic.
+Industry-grade file pickup service.
 
-Called ONLY by scheduler execution.
+Design guarantees:
+- File-level isolation
+- Scheduler-level isolation
+- Zero silent failures
+- Structured, actionable logs (Loguru)
 """
 
 import os
 import base64
-import requests
+import re
+import asyncio
 from dataclasses import dataclass
+import ssl
 from typing import Optional, List
 from urllib.parse import urlparse
-from ftplib import FTP
 from tempfile import SpooledTemporaryFile
-from datetime import datetime
-import re
-import paramiko
+from datetime import datetime, timezone
 
+import requests
+import paramiko
+from ftplib import FTP, FTP_TLS
 from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import update
+from loguru import logger
 
 from app.config import settings
 from app.db.models.upload_scheduler_history import UploadSchedulerHistory
@@ -32,6 +38,7 @@ from app.services.upload_scheduler_history_service import (
 from app.utils.enums.scheduler import SchedulerStatus
 
 ALLOWED_EXTENSIONS = (".csv", ".txt", ".xlsx")
+MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB safety cap
 
 
 @dataclass
@@ -41,7 +48,7 @@ class UploadApiConfig:
     api_name: str
     method: str  # LOCAL | HTTP | FTP | SFTP
     base_url: str
-    auth_type: str  # NONE | BASIC | BEARER | API_KEY | JWT
+    auth_type: str
     auth_token: Optional[str]
     api_time_out: int
     max_try: int
@@ -49,10 +56,10 @@ class UploadApiConfig:
 
 class AuthHandler:
     def build_headers(self, config: UploadApiConfig) -> dict:
-        token = config.auth_token
-
         if config.auth_type == "NONE":
             return {}
+
+        token = config.auth_token or ""
 
         if config.auth_type == "BASIC":
             encoded = base64.b64encode(token.encode()).decode()
@@ -68,16 +75,9 @@ class AuthHandler:
 
 
 class FilePickupService:
-    def __init__(
-        self,
-        upload_service,
-        db: AsyncSession,
-        scheduler_id: int,
-    ):
-        if isinstance(upload_service, type) or not hasattr(
-            upload_service, "fileUpload"
-        ):
-            raise RuntimeError("UploadService must be an INSTANCE")
+    def __init__(self, upload_service, db: AsyncSession, scheduler_id: int):
+        if isinstance(upload_service, type):
+            raise RuntimeError("UploadService must be an instance")
 
         self.upload_service = upload_service
         self.db = db
@@ -85,11 +85,19 @@ class FilePickupService:
         self.auth = AuthHandler()
         self.history_service = UploadSchedulerHistoryService(db)
 
+        # base logger context
+        self.log = logger.bind(
+            component="file_pickup",
+            scheduler_id=scheduler_id,
+        )
+
     @staticmethod
     def _is_valid_file(name: str) -> bool:
-        if name.startswith("."):
-            return False
-        return name.lower().endswith(ALLOWED_EXTENSIONS)
+        return (
+            not name.startswith(".")
+            and ".." not in name
+            and name.lower().endswith(ALLOWED_EXTENSIONS)
+        )
 
     @staticmethod
     def _build_upload_file(filename: str, content: bytes) -> UploadFile:
@@ -112,60 +120,87 @@ class FilePickupService:
         return f"pickup_{config.api_name}.dat"
 
     async def pickup(self, config: UploadApiConfig):
-        history_resp = await self.history_service.create_entry(
-            scheduler_id=self.scheduler_id
+        log = self.log.bind(
+            api_id=config.id,
+            api_name=config.api_name,
+            method=config.method,
+            base_url=config.base_url,
         )
 
-        history = history_resp.get("data")
+        log.info("Pickup started")
+
+        history = (
+            await self.history_service.create_entry(scheduler_id=self.scheduler_id)
+        )["data"]
 
         attempted: List[str] = []
         successful: List[str] = []
-        failed_files = 0
+        status = SchedulerStatus.FAILED.value
         error_message = None
 
         try:
             if config.method == "LOCAL":
+                log.debug("Using LOCAL pickup")
                 await self._pickup_local(config, attempted, successful)
 
             elif config.method == "HTTP":
+                log.debug("Using HTTP pickup")
                 await self._pickup_http(config, attempted, successful)
 
             elif config.method == "FTP":
+                log.debug("Using FTP pickup")
                 await self._pickup_ftp(config, attempted, successful)
 
             elif config.method == "SFTP":
+                log.debug("Using SFTP pickup")
                 await self._pickup_sftp(config, attempted, successful)
 
             else:
                 raise ValueError(f"Unsupported pickup method: {config.method}")
 
-            failed_files = len(attempted) - len(successful)
+            failed = len(attempted) - len(successful)
 
-            if failed_files == 0:
+            if failed == 0:
                 status = SchedulerStatus.SUCCESS.value
             elif successful:
                 status = SchedulerStatus.PARTIAL.value
             else:
                 status = SchedulerStatus.FAILED.value
 
+            log.info(
+                "Pickup completed",
+                attempted=len(attempted),
+                successful=len(successful),
+                failed=failed,
+                status=status,
+            )
+
         except Exception as e:
-            status = SchedulerStatus.FAILED.value
-            failed_files = len(attempted)
             error_message = str(e)
+            log.exception("Pickup crashed")
 
-        await self._finalize_history(
-            history_id=history.id,
-            status=status,
-            picked_files=successful,
-            failed_files=failed_files,
-            error_message=error_message,
-        )
+        finally:
+            try:
+                await self._finalize_history(
+                    history_id=history.id,
+                    status=status,
+                    picked_files=successful,
+                    failed_files=len(attempted) - len(successful),
+                    error_message=error_message,
+                )
+            except Exception:
+                self.log.critical(
+                    "Failed to finalize scheduler history (isolated session)",
+                    history_id=history.id,
+                    exc_info=True,
+                )
 
-    async def _process_file(self, upload_file: UploadFile):
+    async def _process_file(self, upload_file: UploadFile, file_log):
         from app.api.v1.routers.reconciliation import detect_source
 
-        detection = await detect_source(upload_file, self.db)
+        file_log.debug("Detecting source")
 
+        detection = await detect_source(upload_file, self.db)
         if detection.get("status") != "success":
             raise RuntimeError("Source detection failed")
 
@@ -179,6 +214,12 @@ class FilePickupService:
 
         await upload_file.seek(0)
 
+        file_log.debug(
+            "Uploading file",
+            channel_id=channel["id"],
+            source_id=source["id"],
+        )
+
         await self.upload_service.fileUpload(
             upload_file,
             channel["id"],
@@ -187,12 +228,9 @@ class FilePickupService:
             settings.SYSTEM_USER_ID,
         )
 
-    async def _pickup_local(
-        self,
-        config: UploadApiConfig,
-        attempted: list[str],
-        successful: list[str],
-    ):
+        file_log.success("File processed successfully")
+
+    async def _pickup_local(self, config, attempted, successful):
         if not os.path.isdir(config.base_url):
             raise RuntimeError(f"Directory not found: {config.base_url}")
 
@@ -200,136 +238,280 @@ class FilePickupService:
             if not self._is_valid_file(name):
                 continue
 
-            path = os.path.join(config.base_url, name)
-            if not os.path.isfile(path):
-                continue
-
             attempted.append(name)
+            file_log = self.log.bind(file=name, method="LOCAL")
 
             try:
-                with open(path, "rb") as f:
+                file_log.info("Processing file")
+                with open(os.path.join(config.base_url, name), "rb") as f:
                     upload_file = self._build_upload_file(name, f.read())
-                await self._process_file(upload_file)
+
+                await self._process_file(upload_file, file_log)
                 successful.append(name)
+
             except Exception:
+                file_log.exception("File failed")
                 continue
 
         if not attempted:
             raise RuntimeError("No valid files found to process")
 
-    async def _pickup_http(
-        self,
-        config: UploadApiConfig,
-        attempted: list[str],
-        successful: list[str],
-    ):
+    async def _pickup_http(self, config, attempted, successful):
         headers = self.auth.build_headers(config)
 
-        r = requests.get(
+        response = await asyncio.to_thread(
+            requests.get,
             config.base_url,
             headers=headers,
             timeout=config.api_time_out,
         )
-        r.raise_for_status()
+        response.raise_for_status()
 
-        filename = self._extract_filename(r, config)
-
-        if not self._is_valid_file(filename):
-            raise RuntimeError(f"Invalid file received: {filename}")
-
+        filename = self._extract_filename(response, config)
         attempted.append(filename)
 
-        upload_file = self._build_upload_file(filename, r.content)
-        await self._process_file(upload_file)
-        successful.append(filename)
+        file_log = self.log.bind(file=filename, method="HTTP")
 
-    async def _pickup_ftp(
-        self,
-        config: UploadApiConfig,
-        attempted: list[str],
-        successful: list[str],
-    ):
-        parsed = urlparse(config.base_url)
-        if parsed.scheme != "ftp":
-            raise ValueError("FTP base_url must start with ftp://")
-
-        user, password = (
-            config.auth_token.split(":", 1)
-            if config.auth_type == "BASIC" and config.auth_token
-            else ("anonymous", "")
-        )
-
-        ftp = FTP(timeout=config.api_time_out)
-        ftp.set_pasv(True)
-        ftp.use_epsv = False
-        ftp.connect(parsed.hostname, parsed.port or 21)
-        ftp.login(user=user, passwd=password)
-
-        path = parsed.path.lstrip("/") or "."
-        ftp.cwd(path)
+        if not self._is_valid_file(filename):
+            file_log.warning("Invalid file extension received")
+            return
 
         try:
-            names = []
+            upload_file = self._build_upload_file(filename, response.content)
+            await self._process_file(upload_file, file_log)
+            successful.append(filename)
+        except Exception:
+            file_log.exception("File failed")
+
+    async def _pickup_ftp(self, config, attempted, successful):
+        parsed = urlparse(config.base_url)
+
+        log = self.log.bind(
+            method="FTP",
+            host=parsed.hostname,
+            port=parsed.port or 21,
+            path=parsed.path or "/",
+        )
+        if config.auth_type == "BASIC" and config.auth_token:
+            try:
+                user, password = config.auth_token.split(":", 1)
+            except ValueError:
+                raise RuntimeError("FTP auth_token must be 'user:password'")
+        else:
+            user, password = "anonymous", ""
+
+        log.info("Connecting to FTP", user=user)
+
+        ftp = FTP(timeout=config.api_time_out)
+
+        try:
+            await asyncio.to_thread(
+                ftp.connect,
+                parsed.hostname,
+                parsed.port or 21,
+            )
+
+            await asyncio.to_thread(
+                ftp.login,
+                user=user,
+                passwd=password,
+            )
+
+            ftp.set_pasv(True)
+            ftp.use_epsv = False
+
+            ftp.cwd(parsed.path.lstrip("/") or ".")
+
+            names: list[str] = []
             ftp.retrlines("NLST", names.append)
+
+            log.info("Directory listed", file_count=len(names))
 
             for name in names:
                 if not self._is_valid_file(name):
+                    log.debug("Skipping invalid file", file=name)
                     continue
 
                 attempted.append(name)
+                file_log = log.bind(file=name)
 
                 try:
+                    file_log.info("Downloading file")
+
                     tmp = SpooledTemporaryFile()
                     ftp.retrbinary(f"RETR {name}", tmp.write)
                     tmp.seek(0)
 
-                    upload_file = UploadFile(filename=name, file=tmp)
-                    await self._process_file(upload_file)
+                    await self._process_file(
+                        UploadFile(filename=name, file=tmp),
+                        file_log,
+                    )
+
                     successful.append(name)
+                    file_log.success("File processed")
+
                 except Exception:
-                    continue
+                    file_log.exception("File failed")
+
         finally:
-            ftp.quit()
+            try:
+                ftp.quit()
+                log.debug("FTP connection closed")
+            except Exception:
+                log.warning("FTP quit failed (connection may already be closed)")
 
-    async def _pickup_sftp(
-        self,
-        config: UploadApiConfig,
-        attempted: list[str],
-        successful: list[str],
-    ):
+    async def _pickup_ftps(self, config, attempted, successful):
         parsed = urlparse(config.base_url)
-        if parsed.scheme != "sftp":
-            raise ValueError("SFTP base_url must start with sftp://")
 
-        user, password = config.auth_token.split(":", 1)
+        log = self.log.bind(
+            method="FTPS",
+            host=parsed.hostname,
+            port=parsed.port or 21,
+            path=parsed.path or "/",
+        )
 
-        transport = paramiko.Transport((parsed.hostname, parsed.port or 22))
-        transport.connect(username=user, password=password)
-        sftp = paramiko.SFTPClient.from_transport(transport)
+        # ---------------- AUTH ----------------
+        if config.auth_type == "BASIC" and config.auth_token:
+            try:
+                user, password = config.auth_token.split(":", 1)
+            except ValueError:
+                raise RuntimeError("FTPS auth_token must be 'user:password'")
+        else:
+            raise RuntimeError("FTPS requires BASIC auth")
+
+        log.info("Connecting to FTPS", user=user)
+
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = ssl.CERT_NONE  # ← common in bank FTPS servers
+
+        ftps = FTP_TLS(context=ssl_ctx, timeout=config.api_time_out)
 
         try:
-            sftp.chdir(parsed.path or "/")
-            for name in sftp.listdir():
+            await asyncio.to_thread(
+                ftps.connect,
+                parsed.hostname,
+                parsed.port or 21,
+            )
+
+            await asyncio.to_thread(ftps.auth)
+            await asyncio.to_thread(
+                ftps.login,
+                user=user,
+                passwd=password,
+            )
+
+            await asyncio.to_thread(ftps.prot_p)
+
+            ftps.set_pasv(True)
+            ftps.cwd(parsed.path.lstrip("/") or ".")
+
+            names: list[str] = []
+            ftps.retrlines("NLST", names.append)
+
+            log.info("Directory listed", file_count=len(names))
+
+            for name in names:
                 if not self._is_valid_file(name):
+                    log.debug("Skipping invalid file", file=name)
                     continue
 
                 attempted.append(name)
+                file_log = log.bind(file=name)
 
                 try:
-                    remote_path = (
-                        f"{parsed.path.rstrip('/')}/{name}" if parsed.path else name
-                    )
-                    with sftp.open(remote_path, "rb") as f:
-                        content = f.read()
+                    file_log.info("Downloading file")
 
-                    upload_file = self._build_upload_file(name, content)
-                    await self._process_file(upload_file)
+                    tmp = SpooledTemporaryFile()
+                    ftps.retrbinary(f"RETR {name}", tmp.write)
+                    tmp.seek(0)
+
+                    await self._process_file(
+                        UploadFile(filename=name, file=tmp),
+                        file_log,
+                    )
+
                     successful.append(name)
+                    file_log.success("File processed")
+
                 except Exception:
-                    continue
+                    file_log.exception("File failed")
+
         finally:
-            sftp.close()
-            transport.close()
+            try:
+                ftps.quit()
+                log.debug("FTPS connection closed")
+            except Exception:
+                log.warning("FTPS quit failed (connection already closed)")
+
+    async def _pickup_sftp(self, config, attempted, successful):
+        parsed = urlparse(config.base_url)
+
+        if not config.auth_token:
+            raise RuntimeError("SFTP auth_token required (user:password)")
+
+        try:
+            user, password = config.auth_token.split(":", 1)
+        except ValueError:
+            raise RuntimeError("SFTP auth_token must be 'user:password'")
+
+        log = self.log.bind(
+            method="SFTP",
+            host=parsed.hostname,
+            port=parsed.port or 22,
+            path=parsed.path or "/",
+            user=user,
+        )
+
+        log.info("Connecting to SFTP")
+
+        transport = paramiko.Transport((parsed.hostname, parsed.port or 22))
+
+        try:
+            await asyncio.to_thread(
+                transport.connect,
+                username=user,
+                password=password,
+            )
+
+            sftp = paramiko.SFTPClient.from_transport(transport)
+
+            directory = parsed.path or "/"
+            sftp.chdir(directory)
+
+            names = sftp.listdir()
+            log.info("Directory listed", file_count=len(names))
+
+            for name in names:
+                if not self._is_valid_file(name):
+                    log.debug("Skipping invalid file", file=name)
+                    continue
+
+                attempted.append(name)
+                file_log = log.bind(file=name)
+
+                try:
+                    file_log.info("Downloading file")
+
+                    remote_path = f"{directory.rstrip('/')}/{name}"
+
+                    with sftp.open(remote_path, "rb") as f:
+                        upload_file = self._build_upload_file(name, f.read())
+
+                    await self._process_file(upload_file, file_log)
+
+                    successful.append(name)
+                    file_log.success("File processed")
+
+                except Exception:
+                    file_log.exception("File failed")
+
+        finally:
+            try:
+                transport.close()
+                log.debug("SFTP connection closed")
+            except Exception:
+                log.warning("SFTP transport close failed")
 
     async def _finalize_history(
         self,
@@ -337,20 +519,30 @@ class FilePickupService:
         status: int,
         picked_files: list[str],
         failed_files: int,
-        error_message: Optional[str],
+        error_message: str | None,
     ):
-        stmt = (
-            update(UploadSchedulerHistory)
-            .where(UploadSchedulerHistory.id == history_id)
-            .values(
-                finished_at=datetime.utcnow(),
-                status=status,
-                total_files=len(picked_files) + failed_files,
-                failed_files=failed_files,
-                file_names=picked_files,
-                error_message=error_message,
-            )
-        )
+        from datetime import datetime
+        from app.db.session import AsyncSessionLocal
 
-        await self.db.execute(stmt)
-        await self.db.commit()
+        async with AsyncSessionLocal() as db:
+            stmt = (
+                update(UploadSchedulerHistory)
+                .where(UploadSchedulerHistory.id == history_id)
+                .values(
+                    finished_at=datetime.utcnow(),
+                    status=status,
+                    total_files=len(picked_files) + failed_files,
+                    failed_files=failed_files,
+                    file_names=picked_files,
+                    error_message=error_message,
+                )
+            )
+
+            result = await db.execute(stmt)
+
+            if result.rowcount == 0:
+                raise RuntimeError(
+                    f"Finalize failed: history_id {history_id} not found"
+                )
+
+            await db.commit()

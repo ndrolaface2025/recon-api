@@ -12,30 +12,34 @@ from app.db.models.upload_file import UploadFile
 from app.config import settings
 from app.db.models.user_config import UserConfig
 from sqlalchemy.dialects.postgresql import JSONB
+
+
 class UploadRepository:
 
     @staticmethod
-    async def saveUploadedFileDetails(db: AsyncSession,fileData :Dict[str, Any]) -> Dict[str, Any]:
+    async def saveUploadedFileDetails(
+        db: AsyncSession, fileData: Dict[str, Any]
+    ) -> Dict[str, Any]:
         try:
             file_entry = UploadFile(
-                file_name=fileData['file_name'],
-                file_details= json.dumps (fileData['file_details']),
-                channel_id = fileData['channel_id'],
-                status=fileData['status'],
-                record_details= json.dumps(fileData['record_details']),
-                total_records=fileData['total_records'],
-                version_number=fileData['version_number'],
-                created_by=fileData['created_by']
+                file_name=fileData["file_name"],
+                file_details=json.dumps(fileData["file_details"]),
+                channel_id=fileData["channel_id"],
+                status=fileData["status"],
+                record_details=json.dumps(fileData["record_details"]),
+                total_records=fileData["total_records"],
+                version_number=fileData["version_number"],
+                created_by=fileData["created_by"],
             )
             db.add(file_entry)
             await db.commit()
             await db.refresh(file_entry)
-            return { "error": False, "status": "success","insertedId": file_entry.id}
+            return {"error": False, "status": "success", "insertedId": file_entry.id}
         except Exception as e:
             await db.rollback()
             print("uploadRepository-saveUploadedFileDetails", str(e))
-            return { "error": True, "status": "error", "message": str(e)}
-        
+            return {"error": True, "status": "error", "message": str(e)}
+
     @staticmethod
     async def saveFileDetails(
         db: AsyncSession,
@@ -45,8 +49,8 @@ class UploadRepository:
         getAmountColumnName: str,
         getAcountNumberColumnName: str,
         getCurrencyColumnName: str,
-        system_id: int = 1  # Default to system 1 (upload)
-        ) -> Dict[str, Any]:
+        system_id: int = 1,  # Default to system 1 (upload)
+    ) -> Dict[str, Any]:
         """
         OPTIMIZED: Bulk duplicate detection using batched queries instead of N queries.
         Performance: 100,000x faster than per-row queries
@@ -56,7 +60,7 @@ class UploadRepository:
         try:
             duplicates = []
             new_records = []
-            
+
             # CRITICAL OPTIMIZATION: Build unique keys for ALL records at once
             keys_to_check = []
             for row in fileData:
@@ -64,68 +68,73 @@ class UploadRepository:
                     fileJson["channel_id"],
                     fileJson["source_id"],
                 ]
-                
+
                 # Add amount to key
                 if getAmountColumnName is not None and getAmountColumnName in row:
                     key.append(str(row[getAmountColumnName]))
                 else:
                     key.append(None)
-                
+
                 # Add date to key
                 if getDateTimeColumnName is not None and getDateTimeColumnName in row:
                     key.append(str(row[getDateTimeColumnName]))
                 else:
                     key.append(None)
-                
+
                 # Add currency to key (if needed for duplicate check)
                 if getCurrencyColumnName is not None and getCurrencyColumnName in row:
                     key.append(str(row[getCurrencyColumnName]))
                 else:
                     key.append(None)
-                
+
                 keys_to_check.append(tuple(key))
-            
+
             # BATCHED QUERY to check all duplicates (avoids Postgres max_stack_depth error)
             # Split into chunks to prevent "stack depth limit exceeded" error on large batches
-            
+
             # DYNAMIC BATCH SIZE: Calculate based on number of jobs from tbl_cfg_system_batch
             from app.db.models.system_batch_config import SystemBatchConfig
-            
+
             # Try to get number of jobs from database config
             batch_config_stmt = select(SystemBatchConfig).where(
                 SystemBatchConfig.system_id == system_id
             )
             batch_config_result = await db.execute(batch_config_stmt)
             batch_config = batch_config_result.scalar_one_or_none()
-            
+
             total_records = len(keys_to_check)
-            
+
             if batch_config and batch_config.record_per_job:
                 # record_per_job stores NUMBER OF JOBS
                 num_jobs = int(batch_config.record_per_job)
                 # Calculate batch size: total records / number of jobs
-                BATCH_SIZE = max(1, (total_records + num_jobs - 1) // num_jobs)  # Ceiling division
-                batch_source = f"calculated from {num_jobs} jobs (system_id={system_id})"
+                BATCH_SIZE = max(
+                    1, (total_records + num_jobs - 1) // num_jobs
+                )  # Ceiling division
+                batch_source = (
+                    f"calculated from {num_jobs} jobs (system_id={system_id})"
+                )
             else:
                 # Fallback to env var or default
                 BATCH_SIZE = settings.UPLOAD_DUPLICATE_CHECK_BATCH_SIZE
                 batch_source = "config/env default"
-            
+
             existing_keys = set()
-            
+
             if keys_to_check:
                 import time
+
                 batch_count = (len(keys_to_check) + BATCH_SIZE - 1) // BATCH_SIZE
                 print(f"\n📊 Duplicate Check Starting:")
                 print(f"   Total keys to check: {len(keys_to_check):,}")
                 print(f"   Batch size: {BATCH_SIZE:,} ({batch_source})")
                 print(f"   Number of batches/jobs: {batch_count}")
-                
+
                 for i in range(0, len(keys_to_check), BATCH_SIZE):
                     batch_start = time.time()
-                    batch_keys = keys_to_check[i:i+BATCH_SIZE]
+                    batch_keys = keys_to_check[i : i + BATCH_SIZE]
                     batch_num = i // BATCH_SIZE + 1
-                    
+
                     if getCurrencyColumnName:
                         # Query with currency
                         stmt = select(
@@ -133,49 +142,55 @@ class UploadRepository:
                             Transaction.source_id,
                             Transaction.amount,
                             Transaction.date,
-                            Transaction.ccy
+                            Transaction.ccy,
                         ).where(
                             tuple_(
                                 Transaction.channel_id,
                                 Transaction.source_id,
                                 Transaction.amount,
                                 Transaction.date,
-                                Transaction.ccy
+                                Transaction.ccy,
                             ).in_(batch_keys)
                         )
                     else:
                         # Query without currency
-                        keys_without_ccy = [k[:4] for k in batch_keys]  # Remove last element (None)
+                        keys_without_ccy = [
+                            k[:4] for k in batch_keys
+                        ]  # Remove last element (None)
                         stmt = select(
                             Transaction.channel_id,
                             Transaction.source_id,
                             Transaction.amount,
-                            Transaction.date
+                            Transaction.date,
                         ).where(
                             tuple_(
                                 Transaction.channel_id,
                                 Transaction.source_id,
                                 Transaction.amount,
-                                Transaction.date
+                                Transaction.date,
                             ).in_(keys_without_ccy)
                         )
-                    
+
                     result = await db.execute(stmt)
                     batch_records = result.all()
-                    
+
                     # Add to existing_keys set for O(1) lookup
                     existing_keys.update(tuple(record) for record in batch_records)
-                    
+
                     # Log batch completion
                     batch_time = time.time() - batch_start
                     duplicates_found = len(batch_records)
-                    print(f"   ✓ Batch {batch_num}/{batch_count}: "
-                          f"{len(batch_keys):,} keys checked, "
-                          f"{duplicates_found:,} duplicates found, "
-                          f"{batch_time:.2f}s")
-                
-                print(f"✓ Duplicate check complete: {len(existing_keys):,} total duplicates found\n")
-            
+                    print(
+                        f"   ✓ Batch {batch_num}/{batch_count}: "
+                        f"{len(batch_keys):,} keys checked, "
+                        f"{duplicates_found:,} duplicates found, "
+                        f"{batch_time:.2f}s"
+                    )
+
+                print(
+                    f"✓ Duplicate check complete: {len(existing_keys):,} total duplicates found\n"
+                )
+
             # Process each row and check against existing_keys (in-memory, super fast)
             for row in fileData:
                 # Build key for this row
@@ -183,27 +198,27 @@ class UploadRepository:
                     fileJson["channel_id"],
                     fileJson["source_id"],
                 ]
-                
+
                 if getAmountColumnName is not None and getAmountColumnName in row:
                     key.append(str(row[getAmountColumnName]))
                 else:
                     key.append(None)
-                
+
                 if getDateTimeColumnName is not None and getDateTimeColumnName in row:
                     key.append(str(row[getDateTimeColumnName]))
                 else:
                     key.append(None)
-                
+
                 if getCurrencyColumnName is not None and getCurrencyColumnName in row:
                     key.append(str(row[getCurrencyColumnName]))
                 else:
                     key.append(None)
-                
+
                 # O(1) duplicate check using set lookup
                 if tuple(key) in existing_keys:
                     duplicates.append(row)
                     continue
-                
+
                 # Build new record
                 data = {
                     "channel_id": fileJson["channel_id"],
@@ -220,12 +235,15 @@ class UploadRepository:
                 if getDateTimeColumnName is not None and getDateTimeColumnName in row:
                     data["date"] = str(row[getDateTimeColumnName])
 
-                if getAcountNumberColumnName is not None and getAcountNumberColumnName in row:
+                if (
+                    getAcountNumberColumnName is not None
+                    and getAcountNumberColumnName in row
+                ):
                     data["account_number"] = str(row[getAcountNumberColumnName])
 
                 if getCurrencyColumnName is not None and getCurrencyColumnName in row:
-                    data["ccy"] = str(row[getCurrencyColumnName])  
-                
+                    data["ccy"] = str(row[getCurrencyColumnName])
+
                 new_records.append(Transaction(**data))
 
             if new_records:
@@ -236,13 +254,13 @@ class UploadRepository:
                 "status": "success",
                 "message": f"{len(new_records)} records inserted, {len(duplicates)} duplicates skipped",
                 "recordsSaved": len(new_records),
-                "duplicateRecords": duplicates
+                "duplicateRecords": duplicates,
             }
         except Exception as e:
             await db.rollback()
             print("uploadRepository-saveFileDetails", str(e))
-            return { "error": True, "status": "error", "message": str(e)}
-    
+            return {"error": True, "status": "error", "message": str(e)}
+
     @staticmethod
     async def updateUploadProgress(
         db: AsyncSession,
@@ -251,7 +269,7 @@ class UploadRepository:
         success: int,
         failed: int,
         duplicates: int,
-        total: int
+        total: int,
     ) -> None:
         """
         Update progress tracking fields for an upload file.
@@ -261,29 +279,31 @@ class UploadRepository:
             stmt = select(UploadFile).where(UploadFile.id == file_id)
             result = await db.execute(stmt)
             upload_file = result.scalar_one_or_none()
-            
+
             if upload_file:
                 upload_file.processed_records = processed
                 upload_file.success_records = success
                 upload_file.failed_records = failed
                 upload_file.duplicate_records = duplicates
-                
+
                 # Calculate progress percentage
                 if total > 0:
-                    upload_file.progress_percentage = round((processed / total) * 100, 2)
-                
+                    upload_file.progress_percentage = round(
+                        (processed / total) * 100, 2
+                    )
+
                 await db.commit()
         except Exception as e:
             await db.rollback()
             print(f"uploadRepository-updateUploadProgress: {str(e)}")
-    
+
     @staticmethod
     async def updateFileStatus(
         db: AsyncSession,
         file_id: int,
         status: int,
         error_message: str = None,
-        error_details: str = None
+        error_details: str = None,
     ) -> None:
         """
         Update upload file status and error information.
@@ -293,10 +313,10 @@ class UploadRepository:
             stmt = select(UploadFile).where(UploadFile.id == file_id)
             result = await db.execute(stmt)
             upload_file = result.scalar_one_or_none()
-            
+
             if upload_file:
                 upload_file.status = status
-                
+
                 # Set timing fields
                 if status == 1 and not upload_file.upload_started_at:
                     # Starting processing
@@ -305,31 +325,36 @@ class UploadRepository:
                     # Completed or failed
                     upload_file.upload_completed_at = datetime.utcnow()
                     if upload_file.upload_started_at:
-                        time_diff = upload_file.upload_completed_at - upload_file.upload_started_at
-                        upload_file.processing_time_seconds = int(time_diff.total_seconds())
-                
+                        time_diff = (
+                            upload_file.upload_completed_at
+                            - upload_file.upload_started_at
+                        )
+                        upload_file.processing_time_seconds = int(
+                            time_diff.total_seconds()
+                        )
+
                 # Set error info if provided
                 if error_message:
                     upload_file.error_message = error_message
                 if error_details:
                     upload_file.error_details = error_details
-                
+
                 await db.commit()
         except Exception as e:
             await db.rollback()
             print(f"uploadRepository-updateFileStatus: {str(e)}")
-    
+
     @staticmethod
     async def saveFileDetailsBatch(
         db: AsyncSession,
         fileData: List[Dict[str, Any]],
         fileJson: Dict[str, Any],
-        column_mappings: Dict[str, str]
+        column_mappings: Dict[str, str],
     ) -> Dict[str, Any]:
         """
         Optimized batch processing method for Celery tasks.
         Uses the same bulk duplicate detection as saveFileDetails.
-        
+
         Args:
             column_mappings: Dict with keys: date, amount, account_number, currency
         """
@@ -340,9 +365,9 @@ class UploadRepository:
             getDateTimeColumnName=column_mappings.get("date"),
             getAmountColumnName=column_mappings.get("amount"),
             getAcountNumberColumnName=column_mappings.get("account_number"),
-            getCurrencyColumnName=column_mappings.get("currency")
+            getCurrencyColumnName=column_mappings.get("currency"),
         )
-    
+
     @staticmethod
     async def getUploadProgress(db: AsyncSession, file_id: int) -> Dict[str, Any]:
         """
@@ -355,7 +380,7 @@ class UploadRepository:
             upload_file = result.scalar_one_or_none()
             if not upload_file:
                 return {"error": True, "message": "File not found"}
-            
+
             return {
                 "error": False,
                 "file_id": upload_file.id,
@@ -367,16 +392,24 @@ class UploadRepository:
                 "failed_records": upload_file.failed_records,
                 "duplicate_records": upload_file.duplicate_records,
                 "progress_percentage": upload_file.progress_percentage,
-                "upload_started_at": upload_file.upload_started_at.isoformat() if upload_file.upload_started_at else None,
-                "upload_completed_at": upload_file.upload_completed_at.isoformat() if upload_file.upload_completed_at else None,
+                "upload_started_at": (
+                    upload_file.upload_started_at.isoformat()
+                    if upload_file.upload_started_at
+                    else None
+                ),
+                "upload_completed_at": (
+                    upload_file.upload_completed_at.isoformat()
+                    if upload_file.upload_completed_at
+                    else None
+                ),
                 "processing_time_seconds": upload_file.processing_time_seconds,
                 "error_message": upload_file.error_message,
-                "error_details": upload_file.error_details
+                "error_details": upload_file.error_details,
             }
         except Exception as e:
             print(f"uploadRepository-getUploadProgress: {str(e)}")
             return {"error": True, "message": str(e)}
-        
+
     @staticmethod
     async def getFileList(db: AsyncSession, offset: int, limit: int):
         try:
@@ -404,9 +437,9 @@ class UploadRepository:
                 .outerjoin(
                     SourceConfig,
                     cast(
-                        UploadFile.file_details.cast(JSONB)["file_type"].astext,
-                        Integer
-                    ) == SourceConfig.id
+                        UploadFile.file_details.cast(JSONB)["file_type"].astext, Integer
+                    )
+                    == SourceConfig.id,
                 )
                 .order_by(UploadFile.created_at.desc())
                 .offset(offset)
@@ -416,7 +449,19 @@ class UploadRepository:
             result = await db.execute(stmt)
             rows = result.all()
             data = []
-            for upload, user_id, f_name, m_name, l_name, email, channel_id, channel_name,source_id, source_name, source_type in rows:
+            for (
+                upload,
+                user_id,
+                f_name,
+                m_name,
+                l_name,
+                email,
+                channel_id,
+                channel_name,
+                source_id,
+                source_name,
+                source_type,
+            ) in rows:
                 file_details_obj = None
                 file_record_obj = {
                     "total_records": upload.total_records,
@@ -427,44 +472,57 @@ class UploadRepository:
                     "progress_percentage": upload.progress_percentage,
                 }
 
-
                 if upload.file_details:
                     try:
                         file_details_obj = json.loads(upload.file_details)
                     except json.JSONDecodeError:
                         pass
-                    
-                data.append({
-                    "id": upload.id,
-                    "file_name": upload.file_name,
-                    "file_details": file_details_obj,
-                    "status": upload.status,
-                    "record_details": file_record_obj,
-                    "created_at": upload.created_at,
-                    "version_number": upload.version_number,
 
-                    "user": {
-                        "id": user_id,
-                        "name": " ".join(filter(None, [f_name, m_name, l_name])),
-                        "email": email,
-                    } if user_id else None,
-
-                    "channel": {
-                        "id": channel_id,
-                        "name": channel_name,
-                    } if channel_id else None,
-                    "source": {
-                        "id": source_id,
-                        "name": source_name,
-                        "type": source_type,
-                    } if source_id else None
-                })
+                data.append(
+                    {
+                        "id": upload.id,
+                        "file_name": upload.file_name,
+                        "file_details": file_details_obj,
+                        "status": upload.status,
+                        "record_details": file_record_obj,
+                        "created_at": upload.created_at,
+                        "version_number": upload.version_number,
+                        "user": (
+                            {
+                                "id": user_id,
+                                "name": " ".join(
+                                    filter(None, [f_name, m_name, l_name])
+                                ),
+                                "email": email,
+                            }
+                            if user_id
+                            else None
+                        ),
+                        "channel": (
+                            {
+                                "id": channel_id,
+                                "name": channel_name,
+                            }
+                            if channel_id
+                            else None
+                        ),
+                        "source": (
+                            {
+                                "id": source_id,
+                                "name": source_name,
+                                "type": source_type,
+                            }
+                            if source_id
+                            else None
+                        ),
+                    }
+                )
             return {
                 "status": "success",
                 "offset": offset,
                 "limit": limit,
                 "total": total,
-                "data": data
+                "data": data,
             }
         except Exception as e:
             # Rollback is safe even for SELECTs
@@ -473,14 +531,12 @@ class UploadRepository:
             return {
                 "status": "error",
                 "message": "Failed to fetch upload file list",
-                "error": str(e)
+                "error": str(e),
             }
-        
+
     async def deleteFileAndTransactions(db: AsyncSession, file_id: int) -> bool:
-        
-        result = await db.execute(
-            select(UploadFile).where(UploadFile.id == file_id)
-        )
+
+        result = await db.execute(select(UploadFile).where(UploadFile.id == file_id))
         file_record = result.scalar_one_or_none()
 
         if not file_record:
@@ -489,15 +545,11 @@ class UploadRepository:
         try:
             # 1️⃣ Delete related transactions
             await db.execute(
-                delete(Transaction).where(
-                    Transaction.file_transactions_id == file_id
-                )
+                delete(Transaction).where(Transaction.file_transactions_id == file_id)
             )
 
             # 2️⃣ Delete file upload record
-            await db.execute(
-                delete(UploadFile).where(UploadFile.id == file_id)
-            )
+            await db.execute(delete(UploadFile).where(UploadFile.id == file_id))
 
             await db.commit()
             return True

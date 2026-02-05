@@ -27,3 +27,4 @@ paramiko
 oracledb
 psycopg2-binary
 loguru
+requests

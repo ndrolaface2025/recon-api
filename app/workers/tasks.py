@@ -490,11 +490,17 @@ async def evaluate_and_dispatch_file_pickups():
         upload_service = UploadService(db)
         # pickup_service = FilePickupService(upload_service, db)
 
-        schedulers = (
-            (await scheduler_service.get_all(filters={"is_active": 1}))
-            .get("result", {})
-            .get("data", [])
+        resp = await scheduler_service.get_all(
+            is_active=1,
+            page=1,
+            page_size=1000,
         )
+
+        if not resp.get("success"):
+            print("❌❌❌ FAILED TO FETCH SCHEDULERS ❌❌❌")
+            return
+
+        schedulers = resp.get("data", [])
 
         print(f"📦 TOTAL ACTIVE SCHEDULERS FOUND: {len(schedulers)}")
 

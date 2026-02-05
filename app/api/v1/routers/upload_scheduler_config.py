@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Depends, Body, Query, Path
 from typing import Optional, Dict, Any
 
+from app.db.session import get_db
 from app.services.upload_scheduler_config_service import UploadSchedulerConfigService
 from app.services.services import get_service
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(
     prefix="/api/v1/upload-scheduler-config",
@@ -16,22 +18,25 @@ router = APIRouter(
     description="Fetch all upload scheduler configurations with optional filters.",
     response_description="List of upload scheduler configurations",
 )
-async def get_scheduler_list(
-    upload_api_id: Optional[int] = Query(None, description="Filter by upload API ID"),
-    scheduler_name: Optional[str] = Query(None, description="Filter by scheduler name"),
-    is_active: Optional[int] = Query(
-        None, description="Filter by active status (1 = active, 0 = inactive)"
-    ),
-    service: UploadSchedulerConfigService = Depends(
-        get_service(UploadSchedulerConfigService)
-    ),
+async def list_schedulers(
+    scheduler_name: str | None = Query(None),
+    upload_api_id: int | None = Query(None),
+    scheduler_id: int | None = Query(None),
+    is_active: int | None = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
 ):
-    filters = {
-        "upload_api_id": upload_api_id,
-        "scheduler_name": scheduler_name,
-        "is_active": is_active,
-    }
-    return await service.get_all(filters)
+    service = UploadSchedulerConfigService(db)
+
+    return await service.get_all(
+        scheduler_name=scheduler_name,
+        scheduler_id=scheduler_id,
+        upload_api_id=upload_api_id,
+        is_active=is_active,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.get(

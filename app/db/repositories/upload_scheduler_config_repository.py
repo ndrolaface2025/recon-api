@@ -32,16 +32,6 @@ class UploadSchedulerConfigRepository:
         try:
             stmt = select(UploadSchedulerConfig)
 
-            if filters.get("upload_api_id") is not None:
-                stmt = stmt.where(
-                    UploadSchedulerConfig.upload_api_id == filters["upload_api_id"]
-                )
-
-            if filters.get("is_active") is not None:
-                stmt = stmt.where(
-                    UploadSchedulerConfig.is_active == filters["is_active"]
-                )
-
             if filters.get("scheduler_name"):
                 stmt = stmt.where(
                     UploadSchedulerConfig.scheduler_name.ilike(
@@ -49,16 +39,36 @@ class UploadSchedulerConfigRepository:
                     )
                 )
 
+            if filters.get("upload_api_id") is not None:
+                stmt = stmt.where(
+                    UploadSchedulerConfig.upload_api_id == filters["upload_api_id"]
+                )
+
+            if filters.get("scheduler_id") is not None:
+                stmt = stmt.where(UploadSchedulerConfig.id == filters["scheduler_id"])
+
+            if filters.get("is_active") is not None:
+                stmt = stmt.where(
+                    UploadSchedulerConfig.is_active == filters["is_active"]
+                )
+
             count_stmt = select(func.count()).select_from(stmt.subquery())
             total = (await db.execute(count_stmt)).scalar() or 0
 
-            stmt = stmt.order_by(UploadSchedulerConfig.created_at.desc())
+            page = filters.get("page", 1)
+            page_size = filters.get("page_size", 20)
+
+            stmt = (
+                stmt.order_by(UploadSchedulerConfig.created_at.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
+
             rows = (await db.execute(stmt)).scalars().all()
 
             return {
                 "status": "success",
                 "total": total,
-                "count": len(rows),
                 "data": [UploadSchedulerConfigRepository._serialize(r) for r in rows],
             }
 
@@ -72,71 +82,29 @@ class UploadSchedulerConfigRepository:
 
     @staticmethod
     async def get_by_id(db: AsyncSession, id: int):
-        try:
-            scheduler = (
-                await db.execute(
-                    select(UploadSchedulerConfig).where(UploadSchedulerConfig.id == id)
-                )
-            ).scalar_one_or_none()
-
-            if not scheduler:
-                return {
-                    "status": "error",
-                    "message": "Scheduler not found",
-                }
-
-            return {
-                "status": "success",
-                "data": UploadSchedulerConfigRepository._serialize(scheduler),
-            }
-
-        except Exception as e:
-            return {
-                "status": "error",
-                "message": "Failed to fetch scheduler",
-                "error": str(e),
-            }
-
-    @staticmethod
-    async def get_by_upload_api_id(db: AsyncSession, upload_api_id: int):
-        try:
-            rows = (
-                (
-                    await db.execute(
-                        select(UploadSchedulerConfig)
-                        .where(UploadSchedulerConfig.upload_api_id == upload_api_id)
-                        .order_by(UploadSchedulerConfig.created_at.desc())
-                    )
-                )
-                .scalars()
-                .all()
+        scheduler = (
+            await db.execute(
+                select(UploadSchedulerConfig).where(UploadSchedulerConfig.id == id)
             )
+        ).scalar_one_or_none()
 
-            return {
-                "status": "success",
-                "data": [UploadSchedulerConfigRepository._serialize(r) for r in rows],
-            }
+        if not scheduler:
+            return {"status": "error", "message": "Scheduler not found"}
 
-        except Exception as e:
-            await db.rollback()
-            return {
-                "status": "error",
-                "message": "Failed to fetch schedulers by upload API",
-                "error": str(e),
-            }
+        return {
+            "status": "success",
+            "data": UploadSchedulerConfigRepository._serialize(scheduler),
+        }
 
     @staticmethod
     async def update(db: AsyncSession, id: int, payload: dict):
         try:
-            stmt = (
+            await db.execute(
                 update(UploadSchedulerConfig)
                 .where(UploadSchedulerConfig.id == id)
                 .values(**payload)
-                .execution_options(synchronize_session="fetch")
             )
-            await db.execute(stmt)
             await db.commit()
-
             return await UploadSchedulerConfigRepository.get_by_id(db, id)
 
         except Exception as e:
@@ -146,14 +114,6 @@ class UploadSchedulerConfigRepository:
                 "message": "Failed to update scheduler",
                 "error": str(e),
             }
-
-    @staticmethod
-    async def enable(db: AsyncSession, id: int):
-        return await UploadSchedulerConfigRepository.update(db, id, {"is_active": 1})
-
-    @staticmethod
-    async def disable(db: AsyncSession, id: int):
-        return await UploadSchedulerConfigRepository.update(db, id, {"is_active": 0})
 
     @staticmethod
     def _serialize(s: UploadSchedulerConfig) -> dict:

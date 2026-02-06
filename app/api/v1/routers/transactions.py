@@ -1,26 +1,24 @@
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, case, and_, or_, Numeric
-from typing import Optional, List
-from datetime import datetime
-
+from typing import Literal, Optional
 from app.db.session import get_db
 from app.db.models.transactions import Transaction
-from app.services.transactionService import TransactionService
+from app.services.services import paginate_individual_transactions, paginate_matched_groups
+from app.services.time_decorator import timing_decorator_async
 from app.db.models.channel_config import ChannelConfig
 from app.db.models.source_config import SourceConfig
 from app.db.models.matching_rule_config import MatchingRuleConfig
-
+from loguru import logger
 router = APIRouter(prefix="/api/v1/reconciliations", tags=["reconciliations"])
 
 
 @router.get("/transactions")
+@timing_decorator_async
 async def get_transactions(
     channel_id: Optional[int] = Query(None, description="Filter by channel ID"),
     network_id: Optional[int] = Query(None, description="Filter by channel ID"),
-    match_status: Optional[str] = Query(
-        None, description="Filter by status: matched, partial, unmatched"
-    ),
+    match_status: Literal["matched", "partial", "unmatched"] = Query(default="matched",description="Filter by match status"),
     source_id: Optional[int] = Query(None, description="Filter by source ID"),
     date_from: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
     date_to: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
@@ -30,30 +28,8 @@ async def get_transactions(
     sort_order: str = Query("desc", description="Sort order: asc or desc"),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Fetch transactions with filtering by channel, match status, and date range.
 
-    Match Status values:
-    - matched: Full match (match_status = 1)
-    - partial: Partial match (match_status = 2)
-    - unmatched: No match (match_status = 0 or NULL)
-    """
     try:
-        # Build the base query
-        query = (
-            select(
-                Transaction,
-                ChannelConfig.channel_name,
-                SourceConfig.source_name,
-                MatchingRuleConfig.rule_name.label("match_rule_name"),
-            )
-            .outerjoin(ChannelConfig, Transaction.channel_id == ChannelConfig.id)
-            .outerjoin(SourceConfig, Transaction.source_id == SourceConfig.id)
-            .outerjoin(
-                MatchingRuleConfig, Transaction.match_rule_id == MatchingRuleConfig.id
-            )
-        )
-
         # Build WHERE conditions
         conditions = []
 
@@ -68,244 +44,36 @@ async def get_transactions(
         if source_id is not None:
             conditions.append(Transaction.source_id == source_id)
 
-        # Filter by match status
-        if match_status:
-            status_lower = match_status.lower()
-            if status_lower == "matched":
-                conditions.append(Transaction.match_status == 1)
-            elif status_lower == "partial":
-                conditions.append(Transaction.match_status == 2)
-            elif status_lower == "unmatched":
-                conditions.append(
-                    or_(
-                        Transaction.match_status == 0,
-                        Transaction.match_status.is_(None),
-                    )
-                )
-
-        # Filter by date range
         if date_from:
             conditions.append(Transaction.date >= date_from)
+
         if date_to:
             conditions.append(Transaction.date <= date_to)
 
-        # Apply conditions
-        if conditions:
-            query = query.where(and_(*conditions))
-
-        # Apply sorting
-        if sort_order.lower() == "desc":
-            query = query.order_by(getattr(Transaction, sort_by).desc())
-        else:
-            query = query.order_by(getattr(Transaction, sort_by).asc())
-
-        # For matched/partial status: Fetch ALL matching records (no pagination yet)
-        # We'll group them first, then paginate the groups to avoid splitting matched sets
         if match_status and match_status.lower() in ["matched", "partial"]:
-            # Fetch all matching transactions without pagination
-            result = await db.execute(query)
-            rows = result.all()
+            match_status_value = 1 if match_status.lower() == "matched" else 2
+            conditions.append(Transaction.match_status == match_status_value)
+            transactions, total_records = await paginate_matched_groups(db=db, conditions=conditions, page=page, page_size=page_size, 
+                                                                        sort_by=sort_by, sort_order=sort_order)           
         else:
-            # For unmatched: Use normal pagination on individual transactions
-            # Get total count for pagination
-            count_query = select(func.count()).select_from(Transaction)
-            if conditions:
-                count_query = count_query.where(and_(*conditions))
-
-            total_result = await db.execute(count_query)
-            total_records = total_result.scalar()
-
-            # Apply pagination
-            offset = (page - 1) * page_size
-            query = query.limit(page_size).offset(offset)
-
-            # Execute query
-            result = await db.execute(query)
-            rows = result.all()
-
-        # Helper function to create transaction dict
-        def create_transaction_dict(txn, channel_name, source_name, match_rule_name):
-            if txn.match_status == 1:
-                match_status_label = "Matched"
-            elif txn.match_status == 2:
-                match_status_label = "Partially Matched"
-            else:
-                match_status_label = "Unmatched"
-
-            return {
-                "id": txn.id,
-                "recon_reference_number": txn.recon_reference_number,
-                "channel_id": txn.channel_id,
-                "channel_name": channel_name,
-                "network_id": txn.network_id,
-                "source_id": txn.source_id,
-                "source_name": source_name,
-                "reference_number": txn.reference_number,
-                "source_reference_number": txn.source_reference_number,
-                "amount": txn.amount,
-                "date": txn.date,
-                "account_number": txn.account_number,
-                "currency": txn.ccy,
-                "match_status": txn.match_status,
-                "other_details": txn.otherDetails,
-                "match_status_label": match_status_label,
-                "match_rule_id": txn.match_rule_id,
-                "match_rule_name": match_rule_name,
-                "match_condition": txn.match_conditon,
-                "reconciliation_status": txn.reconciliation_status,
-                "reconciled_by": txn.reconciled_by,
-                "comment": txn.comment,
-                "created_at": txn.created_at.isoformat() if txn.created_at else None,
-                "updated_at": txn.updated_at.isoformat() if txn.updated_at else None,
-            }
-
-        # Transform results based on match status
-        transactions = []
-
-        # Group transactions by recon_reference_number for matched/partial
-        if match_status and match_status.lower() in ["matched", "partial"]:
-            # Group by recon_reference_number (this groups all matched sources together)
-            grouped = {}
-            for row in rows:
-                txn = row[0]
-                channel_name = row[1]
-                source_name = row[2]
-                match_rule_name = row[3]
-
-                # Grouping logic:
-                # - For FULL matches (status=1): Group by recon_reference_number
-                # - For PARTIAL matches (status=2): Group by reference_number (RRN)
-                # This ensures all sources with the same RRN are grouped together
-                if txn.match_status == 1 and txn.recon_reference_number:
-                    # Full match: Use recon_reference_number
-                    group_key = txn.recon_reference_number
-                elif txn.match_status == 2 and txn.reference_number:
-                    # Partial match: Use reference_number (RRN) with a prefix to avoid collisions
-                    group_key = f"partial_{txn.reference_number}"
-                else:
-                    # Fallback: Individual transaction
-                    group_key = f"txn_{txn.id}"
-
-                if group_key not in grouped:
-                    grouped[group_key] = {
-                        "atm_transactions": [],
-                        "switch_transactions": [],
-                        "cbs_transactions": [],
-                        "network_transactions": [],
-                        "card_transactions": [],
-                        "settlement_transactions": [],
-                        "ej_transactions": [],
-                        "platform_transactions": [],
-                    }
-
-                txn_dict = create_transaction_dict(
-                    txn, channel_name, source_name, match_rule_name
-                )
-
-                # Group by source name (case-insensitive)
-                source_key = source_name.lower() if source_name else "unknown"
-                if "atm" in source_key:
-                    grouped[group_key]["atm_transactions"].append(txn_dict)
-                elif "switch" in source_key:
-                    grouped[group_key]["switch_transactions"].append(txn_dict)
-                elif "cbs" in source_key:
-                    grouped[group_key]["cbs_transactions"].append(txn_dict)
-                elif "network" in source_key:
-                    grouped[group_key]["network_transactions"].append(txn_dict)
-                elif "card" in source_key:
-                    grouped[group_key]["card_transactions"].append(txn_dict)
-                elif "settlement" in source_key:
-                    grouped[group_key]["settlement_transactions"].append(txn_dict)
-                elif "ej" in source_key or "journal" in source_key:
-                    grouped[group_key]["ej_transactions"].append(txn_dict)
-                elif "platform" in source_key:
-                    grouped[group_key]["platform_transactions"].append(txn_dict)
-
-            # Convert grouped data to list (all groups)
-            all_groups = []
-            for group_key, group_data in grouped.items():
-                # Only include source arrays that have data
-                transaction_group = {}
-
-                if group_data["atm_transactions"]:
-                    transaction_group["atm_transactions"] = group_data[
-                        "atm_transactions"
-                    ]
-                if group_data["switch_transactions"]:
-                    transaction_group["switch_transactions"] = group_data[
-                        "switch_transactions"
-                    ]
-                if group_data["cbs_transactions"]:
-                    transaction_group["cbs_transactions"] = group_data[
-                        "cbs_transactions"
-                    ]
-                if group_data["network_transactions"]:
-                    transaction_group["network_transactions"] = group_data[
-                        "network_transactions"
-                    ]
-                if group_data["card_transactions"]:
-                    transaction_group["card_transactions"] = group_data[
-                        "card_transactions"
-                    ]
-                if group_data["settlement_transactions"]:
-                    transaction_group["settlement_transactions"] = group_data[
-                        "settlement_transactions"
-                    ]
-                if group_data["ej_transactions"]:
-                    transaction_group["ej_transactions"] = group_data["ej_transactions"]
-                if group_data["platform_transactions"]:
-                    transaction_group["platform_transactions"] = group_data[
-                        "platform_transactions"
-                    ]
-
-                all_groups.append(transaction_group)
-
-            # NOW paginate the groups (not individual transactions)
-            total_records = len(all_groups)  # Total number of matched groups
-            start_idx = (page - 1) * page_size
-            end_idx = start_idx + page_size
-            transactions = all_groups[start_idx:end_idx]  # Slice the groups
-
-        else:
-            # For unmatched transactions, return all sources separately
-            for row in rows:
-                txn = row[0]
-                channel_name = row[1]
-                source_name = row[2]
-                match_rule_name = row[3]
-
-                transactions.append(
-                    create_transaction_dict(
-                        txn, channel_name, source_name, match_rule_name
-                    )
-                )
+            match_status_value = 0
+            conditions.append( or_(
+                                    Transaction.match_status == match_status_value,
+                                    Transaction.match_status.is_(None),
+                                ))
+            transactions, total_records = await paginate_individual_transactions(
+                db=db,
+                conditions=conditions,
+                page=page,
+                page_size=page_size,
+                sort_by=sort_by,
+                sort_order=sort_order
+            )     
 
         # Calculate pagination metadata
         total_pages = (total_records + page_size - 1) // page_size
         has_next = page < total_pages
         has_previous = page > 1
-
-        # Get summary counts
-        summary_query = select(
-            func.count(case((Transaction.match_status == 1, 1))).label("total_matched"),
-            func.count(case((Transaction.match_status == 2, 1))).label("total_partial"),
-            func.count(
-                case(
-                    (
-                        or_(
-                            Transaction.match_status == 0,
-                            Transaction.match_status.is_(None),
-                        ),
-                        1,
-                    )
-                )
-            ).label("total_unmatched"),
-        )
-        if conditions:
-            summary_query = summary_query.where(and_(*conditions))
-
-        summary_result = await db.execute(summary_query)
-        summary = summary_result.one()
 
         return {
             "status": "success",
@@ -322,14 +90,15 @@ async def get_transactions(
                     "has_previous": has_previous,
                 },
                 "summary": {
-                    "total_matched": summary.total_matched or 0,
-                    "total_partial": summary.total_partial or 0,
-                    "total_unmatched": summary.total_unmatched or 0,
+                    "total_matched": 0,
+                    "total_partial": 0,
+                    "total_unmatched": 0,
                 },
             },
         }
 
     except Exception as e:
+        logger.error(f"Error fetching transactions: {str(e)}")
         return {"status": "error", "error": True, "message": str(e), "data": {}}
 
 

@@ -460,13 +460,17 @@ def auto_trigger_matching(self, channel_id: int, source_id: int, file_id: int):
         raise self.retry(exc=exc, countdown=30)
 
 
+from loguru import logger
+
+
 @celery_app.task(
     name="app.workers.tasks.file_pickup_scheduler.run",
     queue="file-pickup-scheduler",
 )
 def run_file_pickup_scheduler():
     """
-    Evaluates file pickup schedules and dispatches due pickups.
+    Celery entrypoint.
+    Must NEVER raise – worker stability depends on this.
     """
     loop = get_or_create_event_loop()
     loop.run_until_complete(evaluate_and_dispatch_file_pickups())
@@ -481,103 +485,128 @@ async def evaluate_and_dispatch_file_pickups():
     from app.services.file_pickup_service import FilePickupService, UploadApiConfig
     from app.services.upload_service import UploadService
 
-    utc_now = datetime.utcnow()
+    scan_log = logger.bind(component="scheduler_scan")
 
-    async with AsyncSessionLocal() as db:
-        scheduler_service = UploadSchedulerConfigService(db)
-        upload_api_service = UploadAPIConfigService(db)
+    scan_log.info("Scheduler scan started")
 
-        upload_service = UploadService(db)
-        # pickup_service = FilePickupService(upload_service, db)
-
-        resp = await scheduler_service.get_all(
-            is_active=1,
-            page=1,
-            page_size=1000,
-        )
+    try:
+        async with AsyncSessionLocal() as db:
+            scheduler_service = UploadSchedulerConfigService(db)
+            resp = await scheduler_service.get_all(
+                is_active=1,
+                page=1,
+                page_size=1000,
+            )
 
         if not resp.get("success"):
-            print("❌❌❌ FAILED TO FETCH SCHEDULERS ❌❌❌")
+            scan_log.error("Failed to fetch schedulers")
             return
 
         schedulers = resp.get("data", [])
+        scan_log.info("Schedulers loaded", count=len(schedulers))
 
-        print(f"📦 TOTAL ACTIVE SCHEDULERS FOUND: {len(schedulers)}")
+    except Exception:
+        scan_log.exception("Scheduler fetch crashed")
+        return
 
-        for scheduler in schedulers:
-            cron_expr = scheduler["cron_expression"]
-            timezone = scheduler.get("timezone", "UTC")
+    utc_now = datetime.utcnow()
 
-            raw_tz = scheduler.get("timezone", "UTC")
-            timezone = raw_tz.strip()
+    for scheduler in schedulers:
+        sched_log = logger.bind(
+            component="scheduler_execution",
+            scheduler_id=scheduler.get("id"),
+            cron=scheduler.get("cron_expression"),
+            upload_api_id=scheduler.get("upload_api_id"),
+        )
 
-            try:
-                tz = pytz.timezone(timezone)
-            except Exception:
-                print(
-                    "❌❌❌ INVALID TIMEZONE AFTER STRIP — FALLING BACK TO UTC ❌❌❌"
+        sched_log.info("Evaluating scheduler")
+
+        raw_tz = (scheduler.get("timezone") or "UTC").strip()
+        try:
+            tz = pytz.timezone(raw_tz)
+        except Exception:
+            sched_log.warning(
+                "Invalid timezone – falling back to UTC",
+                provided_timezone=raw_tz,
+            )
+            tz = pytz.UTC
+
+        now = pytz.utc.localize(utc_now).astimezone(tz)
+
+        try:
+            cron_match = croniter.match(
+                scheduler["cron_expression"],
+                now,
+            )
+            sched_log.debug(
+                "Cron evaluated",
+                now=str(now),
+                match=cron_match,
+            )
+        except Exception:
+            sched_log.exception("Cron expression invalid – skipping scheduler")
+            continue
+
+        if not cron_match:
+            sched_log.debug("Cron did not match – skipping")
+            continue
+
+        sched_log.info("Cron matched – executing pickup")
+
+        try:
+            async with AsyncSessionLocal() as db:
+                upload_api_service = UploadAPIConfigService(db)
+                upload_service = UploadService(db)
+
+                api_result = await upload_api_service.get_by_id(
+                    scheduler["upload_api_id"]
                 )
-                tz = pytz.UTC
 
-            now = pytz.utc.localize(utc_now).astimezone(tz)
+                if not api_result.get("success"):
+                    sched_log.error("Upload API not found")
+                    continue
 
-            try:
-                match = croniter.match(cron_expr, now)
-                print("✅ CRON MATCH RESULT:", match)
-            except Exception as e:
-                print("❌❌❌ CRON PARSE ERROR ❌❌❌")
-                print("❌ ERROR:", str(e))
-                continue
+                api_cfg = api_result.get("data")
+                if not api_cfg:
+                    sched_log.error("Upload API config empty")
+                    continue
 
-            if not match:
-                print("⛔⛔⛔ CRON DID NOT MATCH — SKIPPING ⛔⛔⛔")
-                continue
+                if api_cfg.get("is_active") != 1:
+                    sched_log.info("Upload API disabled – skipping")
+                    continue
 
-            print("🔥🔥🔥 CRON MATCHED — FIRING SCHEDULER 🔥🔥🔥")
-
-            upload_api_id = scheduler["upload_api_id"]
-
-            api_result = await upload_api_service.get_by_id(upload_api_id)
-
-            if not api_result.get("success"):
-                print("❌❌❌ UPLOAD API NOT FOUND — SKIPPING ❌❌❌")
-                continue
-
-            api_cfg = api_result.get("data")
-
-            if not api_cfg:
-                print("❌❌❌ UPLOAD API NOT FOUND — SKIPPING ❌❌❌")
-                continue
-
-            if api_cfg.get("is_active") != 1:
-                print("⛔⛔⛔ UPLOAD API IS DISABLED — SKIPPING ⛔⛔⛔")
-                continue
-
-            print(
-                f"\n🚀🚀🚀 EXECUTING PICKUP 🚀🚀🚀\n"
-                f"📛 API NAME: {api_cfg['api_name']}\n"
-                f"📂 METHOD: {api_cfg['method']}\n"
-                f"🌐 BASE URL: {api_cfg['base_url']}\n"
-            )
-
-            pickup_service = FilePickupService(
-                upload_service=upload_service,
-                db=db,
-                scheduler_id=scheduler["id"],
-            )
-
-            await pickup_service.pickup(
-                UploadApiConfig(
-                    id=api_cfg["id"],
-                    channel_id=api_cfg["channel_id"],
+                sched_log.info(
+                    "Starting pickup",
                     api_name=api_cfg["api_name"],
                     method=api_cfg["method"],
                     base_url=api_cfg["base_url"],
-                    auth_type=api_cfg["auth_type"],
-                    auth_token=api_cfg.get("auth_token"),
-                    api_time_out=int(api_cfg.get("api_time_out", 30)),
-                    max_try=int(api_cfg.get("max_try", 1)),
                 )
-            )
 
-            print("✅✅✅ PICKUP COMPLETED SUCCESSFULLY ✅✅✅")
+                pickup_service = FilePickupService(
+                    upload_service=upload_service,
+                    db=db,
+                    scheduler_id=scheduler["id"],
+                )
+
+                await pickup_service.pickup(
+                    UploadApiConfig(
+                        id=api_cfg["id"],
+                        channel_id=api_cfg["channel_id"],
+                        api_name=api_cfg["api_name"],
+                        method=api_cfg["method"],
+                        base_url=api_cfg["base_url"],
+                        auth_type=api_cfg["auth_type"],
+                        auth_token=api_cfg.get("auth_token"),
+                        api_time_out=int(api_cfg.get("api_time_out", 30)),
+                        max_try=int(api_cfg.get("max_try", 1)),
+                    )
+                )
+
+                sched_log.success("Pickup execution completed")
+
+        except Exception:
+            # HARD RULE: scheduler failure must never escape
+            sched_log.exception("Scheduler execution failed – isolated")
+            continue
+
+    scan_log.info("Scheduler scan completed")

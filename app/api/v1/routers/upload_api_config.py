@@ -20,6 +20,7 @@ router = APIRouter(
 )
 async def get_all_upload_api_configs(
     channel_id: Optional[int] = Query(None, description="Filter by channel ID"),
+    api_id: Optional[int] = Query(None, description="Filter by API ID"),
     api_name: Optional[str] = Query(None, description="Filter by API name"),
     method: Optional[str] = Query(
         None, description="Filter by method (LOCAL, FTP, HTTP, SFTP)"
@@ -34,6 +35,7 @@ async def get_all_upload_api_configs(
 ):
     return await service.get_all(
         channel_id=channel_id,
+        api_id=api_id,
         api_name=api_name,
         method=method,
         auth_type=auth_type,

@@ -19,7 +19,7 @@ class UploadAPIConfig(Base):
     channel_id = Column(BigInteger, ForeignKey("tbl_cfg_channels.id"), nullable=False)
 
     api_name = Column(String(255), nullable=False)
-    method = Column(String(50), nullable=False)  # LOCAL | HTTP | FTP
+    method = Column(String(50), nullable=False)
     base_url = Column(Text, nullable=False)
 
     response_format = Column(String(50))

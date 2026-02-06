@@ -4,7 +4,7 @@ from app.db.models.glLedger import GeneralLedger
 from app.db.repositories.generalLedgerRequest import GeneralLedgerCreateRequest
 from typing import List
 from sqlalchemy import select
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 
 class GeneralLedgerService:
 
@@ -56,22 +56,34 @@ class GeneralLedgerService:
     async def get_all_general_ledgers(
         db: AsyncSession,
         offset: int,
-        limit: int
+        limit: int,
+        search: str | None = None
     ):
         # total count
-        total_stmt = select(func.count()).select_from(GeneralLedger)
-        total = await db.execute(total_stmt)
-        total_records = total.scalar()
+        conditions = []
+        if search:
+            conditions.append(
+            or_(
+                GeneralLedger.general_ledger.ilike(f"%{search}%"),
+                GeneralLedger.gl_role.ilike(f"%{search}%"),
+                GeneralLedger.channel_id.ilike(f"%{search}%"),
+            )
+        )
+        total_records = await db.scalar(
+                            select(func.count())
+                            .select_from(GeneralLedger)
+                            .where(*conditions)
+                        )
 
         # paginated data
-        stmt = (
-            select(GeneralLedger)
-            .order_by(GeneralLedger.created_at.desc())
-            .offset(offset)
-            .limit(limit)
-        )
+        result = await db.execute(
+                    select(GeneralLedger)
+                    .where(*conditions)
+                    .order_by(GeneralLedger.created_at.desc())
+                    .offset(offset)
+                    .limit(limit)
+                )
 
-        result = await db.execute(stmt)
         items = result.scalars().all()
 
         return {

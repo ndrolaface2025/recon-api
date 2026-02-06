@@ -379,6 +379,9 @@ from app.db.repositories.upload import UploadRepository
 from app.db.repositories.userRepository import UserRepository
 from app.services.batch_config_service import BatchConfigService
 from app.workers.tasks import start_recon_job, process_upload_batch
+from app.config import settings
+from loguru import logger
+from celery import group
 
 # from app.workers.tasks import process_batch
 # from app.tasks.test_tasks import process_batch
@@ -616,6 +619,7 @@ class UploadService:
             raise
         except Exception as e:
             # Mark upload as failed
+            logger.error(f"Error in uploadWithCelery: {str(e)}")
             await UploadRepository.updateFileStatus(
                 self.db, file_id, status=3, error_message=str(e)
             )
@@ -673,6 +677,8 @@ class UploadService:
                 chunks = [df[i : i + batch_size] for i in range(0, len(df), batch_size)]
 
             # Submit Celery tasks for each batch
+            task_signatures = []
+            
             for chunk in chunks:
                 if ext == ".csv":
                     chunk = chunk.where(pd.notnull(chunk), "")
@@ -680,8 +686,8 @@ class UploadService:
 
                 batch_data = chunk.to_dict(orient="records")
 
-                # Submit task with correct signature
-                task = process_upload_batch.delay(
+                # Create task signature (doesn't execute yet)
+                task_sig = process_upload_batch.s(
                     batch_data=batch_data,
                     file_json=fileJson,
                     file_id=file_id,
@@ -689,18 +695,30 @@ class UploadService:
                     total_batches=num_batches,
                     column_mappings=column_mappings,
                 )
-
-                task_ids.append(
-                    {
-                        "task_id": task.id,
-                        "batch_number": batch_number,
-                        "batch_size": len(batch_data),
-                        "status": "QUEUED",
-                    }
-                )
-
+                
+                task_signatures.append({
+                    'signature': task_sig,
+                    'batch_number': batch_number,
+                    'batch_size': len(batch_data)
+                })
+                
                 batch_number += 1
-
+            
+            # OPTIMIZATION 3: Submit all tasks in parallel using group
+            job = group([item['signature'] for item in task_signatures])
+            result = job.apply_async()
+            
+            # Collect task IDs from the group result
+            for idx, (task_info, task_result) in enumerate(zip(task_signatures, result.results)):
+                task_ids.append({
+                    "task_id": task_result.id,
+                    "batch_number": task_info['batch_number'],
+                    "batch_size": task_info['batch_size'],
+                    "status": "QUEUED",
+                })
+            
+            logger.success(f"✅ Submitted {num_batches} batches")
+            
             return {
                 "status": "success",
                 "errors": False,
@@ -708,13 +726,13 @@ class UploadService:
                 "data": {
                     "file_id": file_id,
                     "total_batches": num_batches,
-                    "batch_size": batch_size,
+                    "batch_size": len(batch_data),  # Size of last batch
                     "tasks": task_ids,
                 },
             }
 
         except Exception as e:
-            print(f"Error in process_file_in_chunks: {str(e)}")
+            logger.error(f"Error in process_file_in_chunks: {str(e)}")
             raise
 
     async def get_file_list(self, offset: int, limit: int):

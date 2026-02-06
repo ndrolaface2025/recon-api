@@ -40,7 +40,7 @@ class Transaction(Base):
     reconciled_by = Column(BigInteger, ForeignKey("tbl_cfg_users.id"), nullable=True)
     match_rule_id = Column(BigInteger, nullable=True)
     match_conditon = Column(Text, nullable=True)
-    match_status = Column(Integer, nullable=True)
+    match_status = Column(Integer, default=0)
     comment = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=True)
     created_by = Column(BigInteger, ForeignKey("tbl_cfg_users.id"), nullable=True)

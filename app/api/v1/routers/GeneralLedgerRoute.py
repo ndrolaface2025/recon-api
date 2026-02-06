@@ -32,7 +32,8 @@ async def get_all_general_ledgers(
     return await GeneralLedgerService.get_all_general_ledgers(
         db=db,
         offset=offset,
-        limit=limit
+        limit=limit,
+        search=search
     )
 
 @router.delete("/general-ledger/{gl_id}")

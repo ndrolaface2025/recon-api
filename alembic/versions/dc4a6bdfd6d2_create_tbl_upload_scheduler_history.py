@@ -15,17 +15,17 @@ from sqlalchemy.dialects import postgresql
 revision = "dc4a6bdfd6d2"
 down_revision = "f0bcc1715f67"
 branch_labels = None
-depends_on = None
+depends_on = "6b0f6540afce"  # Depends on upload_api_v2_and_scheduler_v2 which creates tbl_cfg_upload_schedulers
 
 
 def upgrade() -> None:
+    # First, check if tbl_cfg_upload_schedulers exists before creating foreign key
     op.create_table(
         "tbl_upload_scheduler_history",
         sa.Column("id", sa.BigInteger(), primary_key=True),
         sa.Column(
             "scheduler_id",
             sa.BigInteger(),
-            sa.ForeignKey("tbl_cfg_upload_schedulers.id", ondelete="CASCADE"),
             nullable=False,
         ),
         sa.Column("started_at", sa.TIMESTAMP(), nullable=False),
@@ -57,6 +57,20 @@ def upgrade() -> None:
             server_default=sa.text("now()"),
         ),
     )
+    
+    # Add foreign key constraint only if parent table exists
+    # This allows the migration to run even if tbl_cfg_upload_schedulers doesn't exist yet
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    if "tbl_cfg_upload_schedulers" in inspector.get_table_names():
+        op.create_foreign_key(
+            "fk_scheduler_history_scheduler_id",
+            "tbl_upload_scheduler_history",
+            "tbl_cfg_upload_schedulers",
+            ["scheduler_id"],
+            ["id"],
+            ondelete="CASCADE"
+        )
 
     op.create_index(
         "ix_upload_scheduler_history_scheduler_id",

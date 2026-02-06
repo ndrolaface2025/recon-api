@@ -89,12 +89,14 @@ async def get_all_journal_entries(
 async def get_pending_journal_entries(
     offset: int = Query(0, ge=0),
     limit: int = Query(10, ge=1),
+    query: str | None = Query(None, description="Search query for maker/checker name"),
     db: AsyncSession = Depends(get_db),
 ):
     return await TxnJournalEntryService.get_pending_journal_entries(
         db=db,
         offset=offset,
         limit=limit,
+        search=query,
     )
 
 @router.patch("/journal-entries/{recon_ref_no}")

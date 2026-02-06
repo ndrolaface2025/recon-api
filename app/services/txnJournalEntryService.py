@@ -2,11 +2,13 @@ from sqlalchemy.orm import Session
 from app.db.models.txnJournalEntry import TxnJournalEntry
 from datetime import date, datetime
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from fastapi import HTTPException
 from sqlalchemy import select, update, exists
 from app.db.models.transactions import Transaction
+from app.db.models.user_config import UserConfig
 from app.services.transactionService import TransactionService
+from sqlalchemy.orm import aliased
 
 class TxnJournalEntryService:
 
@@ -88,25 +90,77 @@ class TxnJournalEntryService:
     #     }
     @staticmethod
     async def get_pending_journal_entries(
-        db: AsyncSession, offset: int, limit: int
+        db: AsyncSession, offset: int, limit: int, search: str | None = None,
     ):
-        base_query = TxnJournalEntry.post_status.in_(["PENDING", "AMEND"])
+        Maker = aliased(UserConfig)
+        Checker = aliased(UserConfig)
+
+        conditions = [
+            TxnJournalEntry.post_status.in_(["PENDING", "AMEND"])
+        ]
+
+        if search:
+            search_term = f"%{search.strip()}%"
+            conditions.append(
+                or_(
+                    TxnJournalEntry.account_number.ilike(search_term),
+                    TxnJournalEntry.recon_reference_number.ilike(search_term),
+                    TxnJournalEntry.batch_no.ilike(search_term),
+                    func.concat(
+                        func.coalesce(Maker.f_name, ""),
+                        " ",
+                        func.coalesce(Maker.l_name, "")
+                    ).ilike(search_term),
+                    func.concat(
+                        func.coalesce(Checker.f_name, ""),
+                        " ",
+                        func.coalesce(Checker.l_name, "")
+                    ).ilike(search_term),
+                )
+            )
 
         total_records = await db.scalar(
-            select(func.count()).where(base_query)
+            select(func.count())
+            .select_from(TxnJournalEntry)
+            .outerjoin(Maker, TxnJournalEntry.maker_id == Maker.id)
+            .outerjoin(Checker, TxnJournalEntry.checker_id == Checker.id)
+            .where(*conditions)
         )
 
-        entries = (
-            await db.execute(
-                select(TxnJournalEntry)
-                .where(base_query)
-                .offset(offset)
-                .limit(limit)
+        result = await db.execute(
+            select(
+                TxnJournalEntry,
+                func.concat(
+                    func.coalesce(Maker.f_name, ""),
+                    " ",
+                    func.coalesce(Maker.l_name, "")
+                ).label("maker_name"),
+                func.concat(
+                    func.coalesce(Checker.f_name, ""),
+                    " ",
+                    func.coalesce(Checker.l_name, "")
+                ).label("checker_name"),
             )
-        ).scalars().all()
+            .outerjoin(Maker, TxnJournalEntry.maker_id == Maker.id)
+            .outerjoin(Checker, TxnJournalEntry.checker_id == Checker.id)
+            .where(*conditions)
+            .offset(offset)
+            .limit(limit)
+        )
+
+        rows = result.all()
+
+        data = [
+            {
+                **entry.__dict__,
+                "maker_name": maker_name.strip() or None,
+                "checker_name": checker_name.strip() or None,
+            }
+            for entry, maker_name, checker_name in rows
+        ]
 
         return {
-            "data": entries,
+            "data": data,
             "count": total_records,
             "offset": offset,
             "limit": limit,

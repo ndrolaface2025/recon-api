@@ -170,7 +170,7 @@ def process_upload_batch(
 
                     # Calculate cumulative progress
                     records_saved = result.get("recordsSaved", 0)
-                    duplicates_count = len(result.get("duplicateRecords", []))
+                    # duplicates_count = len(result.get("duplicateRecords", []))
 
                     # Get current progress from database
                     progress_info = await UploadRepository.getUploadProgress(
@@ -179,13 +179,13 @@ def process_upload_batch(
 
                     current_processed = progress_info.get("processed_records", 0)
                     current_success = progress_info.get("success_records", 0)
-                    current_duplicates = progress_info.get("duplicate_records", 0)
+                    # current_duplicates = progress_info.get("duplicate_records", 0)
                     total_records = progress_info.get("total_records", 0)
 
                     # Update cumulative counts
                     new_processed = current_processed + len(batch_data)
                     new_success = current_success + records_saved
-                    new_duplicates = current_duplicates + duplicates_count
+                    # new_duplicates = current_duplicates + duplicates_count
 
                     # Update progress
                     await UploadRepository.updateUploadProgress(
@@ -194,7 +194,7 @@ def process_upload_batch(
                         processed=new_processed,
                         success=new_success,
                         failed=0,  # Update if you track failed records
-                        duplicates=new_duplicates,
+                        # duplicates=new_duplicates,
                         total=total_records,
                     )
 
@@ -220,7 +220,7 @@ def process_upload_batch(
                         "batch_number": batch_number,
                         "records_processed": len(batch_data),
                         "records_saved": records_saved,
-                        "duplicates": duplicates_count,
+                        # "duplicates": duplicates_count,
                     }
 
                 except Exception as e:

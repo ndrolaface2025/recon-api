@@ -179,17 +179,17 @@ class UploadRepository:
 
                     # Log batch completion
                     batch_time = time.time() - batch_start
-                    duplicates_found = len(batch_records)
-                    print(
-                        f"   ✓ Batch {batch_num}/{batch_count}: "
-                        f"{len(batch_keys):,} keys checked, "
-                        f"{duplicates_found:,} duplicates found, "
-                        f"{batch_time:.2f}s"
-                    )
+                    # duplicates_found = len(batch_records)
+                    # print(
+                    #     f"   ✓ Batch {batch_num}/{batch_count}: "
+                    #     f"{len(batch_keys):,} keys checked, "
+                    #     f"{duplicates_found:,} duplicates found, "
+                    #     f"{batch_time:.2f}s"
+                    # )
 
-                print(
-                    f"✓ Duplicate check complete: {len(existing_keys):,} total duplicates found\n"
-                )
+                # print(
+                #     f"✓ Duplicate check complete: {len(existing_keys):,} total duplicates found\n"
+                # )
 
             # Process each row and check against existing_keys (in-memory, super fast)
             for row in fileData:
@@ -215,9 +215,9 @@ class UploadRepository:
                     key.append(None)
 
                 # O(1) duplicate check using set lookup
-                if tuple(key) in existing_keys:
-                    duplicates.append(row)
-                    continue
+                # if tuple(key) in existing_keys:
+                #     duplicates.append(row)
+                #     continue
 
                 # Build new record
                 data = {
@@ -268,7 +268,7 @@ class UploadRepository:
         processed: int,
         success: int,
         failed: int,
-        duplicates: int,
+        # duplicates: int,
         total: int,
     ) -> None:
         """
@@ -284,7 +284,7 @@ class UploadRepository:
                 upload_file.processed_records = processed
                 upload_file.success_records = success
                 upload_file.failed_records = failed
-                upload_file.duplicate_records = duplicates
+                # upload_file.duplicate_records = duplicates
 
                 # Calculate progress percentage
                 if total > 0:
@@ -468,7 +468,7 @@ class UploadRepository:
                     "processed": upload.processed_records,
                     "success": upload.success_records,
                     "failed": upload.failed_records,
-                    "duplicates": upload.duplicate_records,
+                    # "duplicates": upload.duplicate_records,
                     "progress_percentage": upload.progress_percentage,
                 }
 
